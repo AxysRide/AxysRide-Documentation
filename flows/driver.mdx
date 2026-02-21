@@ -15,38 +15,59 @@ Sign Up → Apply → Get Approved → Add Bank → Create Trip → Manage Booki
 
 ## Step 1: Sign Up
 
-Same as passenger signup. Role starts as `passenger`.
+Same required fields as passenger signup — `full_name` and `phone` must be passed in `user_metadata`. Role starts as `passenger`.
 
-```typescript
-const { data } = await supabase.auth.signUp({
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.auth.signUp({
   email: 'driver@example.com',
   password: 'password123',
+  options: {
+    data: {
+      full_name: 'Jane Driver',    // required
+      phone: '+2348012345678',     // required
+    }
+  }
 })
 ```
+
+```dart Flutter
+final AuthResponse res = await supabase.auth.signUp(
+  email: 'driver@example.com',
+  password: 'password123',
+  data: {
+    'full_name': 'Jane Driver',    // required
+    'phone': '+2348012345678',     // required
+  },
+);
+```
+
+</CodeGroup>
 
 ---
 
 ## Step 2: Submit Driver Application
 
 ```typescript
-await supabase.from('driver_profiles').insert({
+await supabase.from("driver_profiles").insert({
   user_id: userId,
-  license_number: 'LIC123456',
-  license_expiry: '2027-01-01',
-  vehicle_make: 'Toyota',
-  vehicle_model: 'Camry',
+  license_number: "LIC123456",
+  license_expiry: "2027-01-01",
+  vehicle_make: "Toyota",
+  vehicle_model: "Camry",
   vehicle_year: 2020,
-  vehicle_color: 'Black',
-  plate_number: 'LAG-123-XY',
+  vehicle_color: "Black",
+  plate_number: "LAG-123-XY",
   total_seats: 4,
-})
+});
 ```
 
 Upload license image:
 
 ```typescript
-await supabase.storage.from('driver-docs')
-  .upload(`${userId}/license.jpg`, licenseFile, { upsert: true })
+await supabase.storage
+  .from("driver-docs")
+  .upload(`${userId}/license.jpg`, licenseFile, { upsert: true });
 ```
 
 ---
@@ -58,23 +79,28 @@ Poll or listen for approval status change:
 ```typescript
 // Poll
 const { data } = await supabase
-  .from('driver_profiles')
-  .select('approval_status')
-  .single()
+  .from("driver_profiles")
+  .select("approval_status")
+  .single();
 
 // Or subscribe via Realtime
-supabase.channel('driver-approval')
-  .on('postgres_changes', {
-    event: 'UPDATE',
-    schema: 'public',
-    table: 'driver_profiles',
-    filter: `user_id=eq.${userId}`,
-  }, (payload) => {
-    if (payload.new.approval_status === 'approved') {
-      // Unlock driver features
-    }
-  })
-  .subscribe()
+supabase
+  .channel("driver-approval")
+  .on(
+    "postgres_changes",
+    {
+      event: "UPDATE",
+      schema: "public",
+      table: "driver_profiles",
+      filter: `user_id=eq.${userId}`,
+    },
+    (payload) => {
+      if (payload.new.approval_status === "approved") {
+        // Unlock driver features
+      }
+    },
+  )
+  .subscribe();
 ```
 
 ---
@@ -83,17 +109,21 @@ supabase.channel('driver-approval')
 
 ```typescript
 // 1. Get bank list
-const { data: { banks } } = await supabase.functions.invoke('get-paystack-banks')
+const {
+  data: { banks },
+} = await supabase.functions.invoke("get-paystack-banks");
 
 // 2. Resolve account name for confirmation
-const { data: { account_name } } = await supabase.functions.invoke('resolve-account-name', {
-  body: { account_number: '0123456789', bank_code: '058' }
-})
+const {
+  data: { account_name },
+} = await supabase.functions.invoke("resolve-account-name", {
+  body: { account_number: "0123456789", bank_code: "058" },
+});
 
 // 3. Save bank account
-await supabase.functions.invoke('add-bank-account', {
-  body: { driver_id: userId, account_number: '0123456789', bank_code: '058' }
-})
+await supabase.functions.invoke("add-bank-account", {
+  body: { driver_id: userId, account_number: "0123456789", bank_code: "058" },
+});
 ```
 
 ---
@@ -101,16 +131,16 @@ await supabase.functions.invoke('add-bank-account', {
 ## Step 5: Create a Trip
 
 ```typescript
-const { data } = await supabase.functions.invoke('create-trip', {
+const { data } = await supabase.functions.invoke("create-trip", {
   body: {
     driver_id: userId,
     start_location: { latitude: 6.5244, longitude: 3.3792 },
-    end_location: { latitude: 7.3776, longitude: 3.9470 },
+    end_location: { latitude: 7.3776, longitude: 3.947 },
     price_per_seat_kobo: 150000,
     total_seats: 3,
-    departure_time: '2025-03-15T08:00:00Z',
-  }
-})
+    departure_time: "2025-03-15T08:00:00Z",
+  },
+});
 ```
 
 ---
@@ -120,26 +150,33 @@ const { data } = await supabase.functions.invoke('create-trip', {
 Listen for new booking requests:
 
 ```typescript
-supabase.channel('trip-bookings')
-  .on('postgres_changes', {
-    event: 'INSERT',
-    schema: 'public',
-    table: 'bookings',
-    filter: `trip_id=eq.${tripId}`,
-  }, (payload) => {
-    // New booking request — show accept/reject UI
-  })
-  .subscribe()
+supabase
+  .channel("trip-bookings")
+  .on(
+    "postgres_changes",
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "bookings",
+      filter: `trip_id=eq.${tripId}`,
+    },
+    (payload) => {
+      // New booking request — show accept/reject UI
+    },
+  )
+  .subscribe();
 
 // Accept
-await supabase.from('bookings')
-  .update({ status: 'accepted' })
-  .eq('id', bookingId)
+await supabase
+  .from("bookings")
+  .update({ status: "accepted" })
+  .eq("id", bookingId);
 
 // Reject
-await supabase.from('bookings')
-  .update({ status: 'rejected' })
-  .eq('id', bookingId)
+await supabase
+  .from("bookings")
+  .update({ status: "rejected" })
+  .eq("id", bookingId);
 ```
 
 ---
@@ -149,9 +186,9 @@ await supabase.from('bookings')
 At pickup, driver enters passenger's 4-digit PIN:
 
 ```typescript
-const { data, error } = await supabase.functions.invoke('verify-pin', {
-  body: { driver_id: userId, booking_id: bookingId, boarding_pin: pinInput }
-})
+const { data, error } = await supabase.functions.invoke("verify-pin", {
+  body: { driver_id: userId, booking_id: bookingId, boarding_pin: pinInput },
+});
 
 if (error) {
   // Show "Invalid PIN" message
@@ -163,9 +200,9 @@ if (error) {
 Mark no-shows (after 10 minutes):
 
 ```typescript
-await supabase.functions.invoke('mark-no-show', {
-  body: { booking_id: bookingId }
-})
+await supabase.functions.invoke("mark-no-show", {
+  body: { booking_id: bookingId },
+});
 ```
 
 ---
@@ -175,15 +212,15 @@ await supabase.functions.invoke('mark-no-show', {
 ```typescript
 // Send GPS ping every 5–10 seconds during active trip
 const interval = setInterval(async () => {
-  const { latitude, longitude } = await getCurrentLocation()
-  await supabase.from('driver_locations').insert({
+  const { latitude, longitude } = await getCurrentLocation();
+  await supabase.from("driver_locations").insert({
     driver_id: userId,
     trip_id: tripId,
     location: `POINT(${longitude} ${latitude})`,
     speed_kmh: currentSpeed,
     heading: currentHeading,
-  })
-}, 5000)
+  });
+}, 5000);
 ```
 
 ---
@@ -193,9 +230,9 @@ const interval = setInterval(async () => {
 Once all passengers are verified (or no-shows marked):
 
 ```typescript
-const { data, error } = await supabase.functions.invoke('start-trip', {
-  body: { driver_id: userId, trip_id: tripId }
-})
+const { data, error } = await supabase.functions.invoke("start-trip", {
+  body: { driver_id: userId, trip_id: tripId },
+});
 ```
 
 ---
@@ -203,9 +240,9 @@ const { data, error } = await supabase.functions.invoke('start-trip', {
 ## Step 10: Complete Trip & Get Paid
 
 ```typescript
-const { data } = await supabase.functions.invoke('complete-trip', {
-  body: { driver_id: userId, trip_id: tripId }
-})
+const { data } = await supabase.functions.invoke("complete-trip", {
+  body: { driver_id: userId, trip_id: tripId },
+});
 // data.payout_id — payout is now scheduled
 // If payout_preference is 'auto', wallet is credited immediately
 ```
@@ -214,7 +251,7 @@ Check wallet balance after completion:
 
 ```typescript
 const { data: wallet } = await supabase
-  .from('wallets')
-  .select('balance_kobo')
-  .single()
+  .from("wallets")
+  .select("balance_kobo")
+  .single();
 ```

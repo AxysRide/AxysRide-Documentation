@@ -11,32 +11,52 @@ AxysRide uses **Supabase Auth** with Email/Password and Phone/OTP. On signup, th
 
 ## Sign Up
 
+<Warning>
+  `full_name` and `phone` are **required** at signup. The `handle_new_user`
+  trigger uses these to create the `profiles` row automatically. If either is
+  missing, the trigger will throw an error and the signup will fail.
+</Warning>
+
 <CodeGroup>
 ```typescript Next.js
 const { data, error } = await supabase.auth.signUp({
   email: 'user@example.com',
   password: 'password123',
+  options: {
+    data: {
+      full_name: 'John Doe',       // required
+      phone: '+2348012345678',     // required — include country code
+    }
+  }
 })
 
 if (error) console.error(error.message)
 
 // data.user contains the new user
 // data.session contains the JWT
-```
+
+````
 
 ```dart Flutter
 final AuthResponse res = await supabase.auth.signUp(
   email: 'user@example.com',
   password: 'password123',
+  data: {
+    'full_name': 'John Doe',       // required
+    'phone': '+2348012345678',     // required — include country code
+  },
 );
 
 final user = res.user;
 final session = res.session;
-```
+````
+
 </CodeGroup>
 
 <Note>
-  After signup, a `profiles` row and `wallets` row are created automatically by the `handle_new_user` database trigger. You do not need to create these manually.
+  After signup, a `profiles` row and `wallets` row are created automatically by
+  the `handle_new_user` database trigger using the `full_name` and `phone`
+  values passed in `user_metadata`. You do not need to create these manually.
 </Note>
 
 ---
@@ -57,6 +77,7 @@ final AuthResponse res = await supabase.auth.signInWithPassword(
   password: 'password123',
 );
 ```
+
 </CodeGroup>
 
 ---
@@ -70,11 +91,12 @@ await supabase.auth.signInWithOtp({ phone: '+2348012345678' })
 
 // Step 2 — Verify OTP
 const { data, error } = await supabase.auth.verifyOtp({
-  phone: '+2348012345678',
-  token: '123456',
-  type: 'sms',
+phone: '+2348012345678',
+token: '123456',
+type: 'sms',
 })
-```
+
+````
 
 ```dart Flutter
 // Step 1 — Send OTP
@@ -86,7 +108,8 @@ final AuthResponse res = await supabase.auth.verifyOTP(
   token: '123456',
   type: OtpType.sms,
 );
-```
+````
+
 </CodeGroup>
 
 ---
@@ -101,6 +124,7 @@ await supabase.auth.signOut()
 ```dart Flutter
 await supabase.auth.signOut();
 ```
+
 </CodeGroup>
 
 ---
@@ -117,6 +141,7 @@ const userId = user?.id
 final user = supabase.auth.currentUser;
 final userId = user?.id;
 ```
+
 </CodeGroup>
 
 ---
@@ -148,6 +173,7 @@ supabase.auth.onAuthStateChange.listen((data) {
   }
 });
 ```
+
 </CodeGroup>
 
 ---
@@ -170,7 +196,8 @@ const { data: profile } = await supabase
   .single()
 
 // profile.role will be 'passenger' or 'driver'
-```
+
+````
 
 ```dart Flutter
 final profile = await supabase
@@ -179,9 +206,12 @@ final profile = await supabase
     .single();
 
 final role = profile['role']; // 'passenger' or 'driver'
-```
+````
+
 </CodeGroup>
 
 <Warning>
-  Admin users do not appear in the `profiles` table with admin roles. They are stored in the `super_admins` table. The admin dashboard (Next.js) checks admin status via Edge Functions, not via the `profiles` role column.
+  Admin users do not appear in the `profiles` table with admin roles. They are
+  stored in the `super_admins` table. The admin dashboard (Next.js) checks admin
+  status via Edge Functions, not via the `profiles` role column.
 </Warning>

@@ -15,15 +15,41 @@ Sign Up → Fund Wallet → Search Trip → Book → Pay → Ride → Rate
 
 ## Step 1: Sign Up
 
-```typescript
+`full_name` and `phone` are **required** — the `handle_new_user` trigger uses them to create the `profiles` row. Signup will fail if either is missing.
+
+<CodeGroup>
+```typescript Next.js
 const { data, error } = await supabase.auth.signUp({
   email: 'passenger@example.com',
   password: 'password123',
+  options: {
+    data: {
+      full_name: 'John Doe',       // required
+      phone: '+2348012345678',     // required
+    }
+  }
 })
-```
+
+if (error) console.error(error.message)
+
+````
+
+```dart Flutter
+final AuthResponse res = await supabase.auth.signUp(
+  email: 'passenger@example.com',
+  password: 'password123',
+  data: {
+    'full_name': 'John Doe',       // required
+    'phone': '+2348012345678',     // required
+  },
+);
+````
+
+</CodeGroup>
 
 **What happens automatically:**
-- `profiles` row created (role: `passenger`)
+
+- `profiles` row created (role: `passenger`, with `full_name` and `phone` populated)
 - `wallets` row created with `balance_kobo: 0`
 
 ---
@@ -31,9 +57,9 @@ const { data, error } = await supabase.auth.signUp({
 ## Step 2: Fund Wallet
 
 ```typescript
-const { data } = await supabase.functions.invoke('fund-wallet', {
-  body: { amount_kobo: 500000, channel: 'card' }
-})
+const { data } = await supabase.functions.invoke("fund-wallet", {
+  body: { amount_kobo: 500000, channel: "card" },
+});
 // Redirect user to data.authorization_url
 // After payment → webhook credits wallet automatically
 ```
@@ -44,15 +70,17 @@ const { data } = await supabase.functions.invoke('fund-wallet', {
 
 ```typescript
 const { data: trips } = await supabase
-  .from('trips')
-  .select(`
+  .from("trips")
+  .select(
+    `
     id, origin_name, destination_name,
     departure_time, seats_available, price_per_seat_kobo,
     profiles!driver_id (full_name, rating_avg)
-  `)
-  .in('status', ['scheduled', 'active'])
-  .gt('seats_available', 0)
-  .order('departure_time')
+  `,
+  )
+  .in("status", ["scheduled", "active"])
+  .gt("seats_available", 0)
+  .order("departure_time");
 ```
 
 ---
@@ -60,22 +88,22 @@ const { data: trips } = await supabase
 ## Step 4: Book a Trip
 
 ```typescript
-const { data } = await supabase.functions.invoke('book-trip', {
+const { data } = await supabase.functions.invoke("book-trip", {
   body: {
     user_id: userId,
     trip_id: tripId,
     seats_requested: 1,
     passenger_email: userEmail,
-    payment_channel: 'card',
-  }
-})
+    payment_channel: "card",
+  },
+});
 
 if (data.paid) {
   // Paid via wallet — show booking confirmation
   // Show data.booking.trip_pin to the passenger
 } else {
   // Open Paystack URL for card payment
-  window.open(data.payment_url)
+  window.open(data.payment_url);
 }
 ```
 
@@ -87,10 +115,10 @@ After booking is `accepted`, display the `trip_pin` to the passenger. They share
 
 ```typescript
 const { data: booking } = await supabase
-  .from('bookings')
-  .select('trip_pin, status')
-  .eq('id', bookingId)
-  .single()
+  .from("bookings")
+  .select("trip_pin, status")
+  .eq("id", bookingId)
+  .single();
 
 // Show booking.trip_pin in your UI
 ```
@@ -102,17 +130,22 @@ const { data: booking } = await supabase
 Once trip is `active`, subscribe to real-time driver location:
 
 ```typescript
-supabase.channel('driver-location')
-  .on('postgres_changes', {
-    event: 'INSERT',
-    schema: 'public',
-    table: 'driver_locations',
-    filter: `trip_id=eq.${tripId}`,
-  }, (payload) => {
-    const { location, heading, speed_kmh } = payload.new
-    // Update map marker
-  })
-  .subscribe()
+supabase
+  .channel("driver-location")
+  .on(
+    "postgres_changes",
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "driver_locations",
+      filter: `trip_id=eq.${tripId}`,
+    },
+    (payload) => {
+      const { location, heading, speed_kmh } = payload.new;
+      // Update map marker
+    },
+  )
+  .subscribe();
 ```
 
 ---
@@ -120,9 +153,13 @@ supabase.channel('driver-location')
 ## Step 7: Cancel (if needed)
 
 ```typescript
-const { data } = await supabase.functions.invoke('cancel-booking', {
-  body: { passenger_id: userId, booking_id: bookingId, reason: 'Plans changed' }
-})
+const { data } = await supabase.functions.invoke("cancel-booking", {
+  body: {
+    passenger_id: userId,
+    booking_id: bookingId,
+    reason: "Plans changed",
+  },
+});
 // data.refund_amount_kobo tells you how much was refunded
 ```
 
@@ -133,13 +170,13 @@ const { data } = await supabase.functions.invoke('cancel-booking', {
 After trip completes:
 
 ```typescript
-await supabase.from('ratings').insert({
+await supabase.from("ratings").insert({
   booking_id: bookingId,
   rater_id: userId,
   ratee_id: driverId,
   score: 5,
-  comment: 'Smooth ride!',
-})
+  comment: "Smooth ride!",
+});
 ```
 
 ---
@@ -147,13 +184,13 @@ await supabase.from('ratings').insert({
 ## Step 9: Raise a Dispute (if needed)
 
 ```typescript
-await supabase.functions.invoke('raise-dispute', {
+await supabase.functions.invoke("raise-dispute", {
   body: {
     booking_id: bookingId,
     raised_by: userId,
     against: driverId,
-    type: 'overcharge',
-    description: 'Was charged more than agreed',
-  }
-})
+    type: "overcharge",
+    description: "Was charged more than agreed",
+  },
+});
 ```
