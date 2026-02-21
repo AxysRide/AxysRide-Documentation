@@ -7,23 +7,46 @@ description: Edge Functions for creating, starting, and completing trips
 
 ## create-trip
 
-Creates a new trip after validating the driver is approved and the price is within platform limits.
+Creates a new trip after validating the driver is approved, the departure time is in the future, and the price is within the platform cap for the route distance.
 
 **Who can call:** Approved drivers only
 
 ### Request
 
+| Field                 | Type       | Required | Notes                                                     |
+| --------------------- | ---------- | -------- | --------------------------------------------------------- |
+| `driver_id`           | uuid       | ✅       | Must match an approved driver                             |
+| `start_location`      | object     | ✅       | Must include `latitude`, `longitude`, and `name`          |
+| `end_location`        | object     | ✅       | Must include `latitude`, `longitude`, and `name`          |
+| `price_per_seat_kobo` | integer    | ✅       | Driver sets this — validated against platform cap         |
+| `total_seats`         | integer    | ✅       | Between 1 and 10                                          |
+| `departure_time`      | ISO string | ✅       | Must be in the future                                     |
+| `trip_type`           | string     | ❌       | `once` (default) or `recurring`                           |
+| `notes`               | string     | ❌       | Optional driver notes e.g. "AC available"                 |
+| `recurrence_days`     | integer[]  | ❌       | e.g. `[1,3,5]` for Mon/Wed/Fri — only for recurring trips |
+
 ```json
 {
   "driver_id": "uuid",
-  "start_location": { "latitude": 6.5244, "longitude": 3.3792 },
-  "end_location": { "latitude": 7.3776, "longitude": 3.9470 },
-  "waypoints": [],
+  "start_location": {
+    "latitude": 6.5244,
+    "longitude": 3.3792,
+    "name": "Ikeja"
+  },
+  "end_location": { "latitude": 7.3776, "longitude": 3.947, "name": "Ibadan" },
   "price_per_seat_kobo": 150000,
   "total_seats": 3,
-  "departure_time": "2025-03-15T08:00:00Z"
+  "departure_time": "2025-03-15T08:00:00Z",
+  "trip_type": "once",
+  "notes": "AC available"
 }
 ```
+
+<Warning>
+  `start_location` and `end_location` must include a `name` field. This is
+  stored as the human-readable origin and destination shown to passengers.
+  Requests without `name` will be rejected.
+</Warning>
 
 ### Response
 
@@ -32,6 +55,8 @@ Creates a new trip after validating the driver is approved and the price is with
   "trip": {
     "id": "uuid",
     "status": "scheduled",
+    "origin_name": "Ikeja",
+    "destination_name": "Ibadan",
     "seats_available": 3,
     ...
   }
@@ -43,39 +68,59 @@ Creates a new trip after validating the driver is approved and the price is with
 const { data, error } = await supabase.functions.invoke('create-trip', {
   body: {
     driver_id: userId,
-    start_location: { latitude: 6.5244, longitude: 3.3792 },
-    end_location: { latitude: 7.3776, longitude: 3.9470 },
-    price_per_seat_kobo: 150000,
+    start_location: { latitude: 6.5244, longitude: 3.3792, name: 'Ikeja' },
+    end_location: { latitude: 7.3776, longitude: 3.9470, name: 'Ibadan' },
+    price_per_seat_kobo: 150000,  // ₦1,500
     total_seats: 3,
     departure_time: '2025-03-15T08:00:00Z',
+    trip_type: 'once',
+    notes: 'AC available',
   }
 })
 
 if (error) console.error(error)
 const trip = data.trip
-```
+
+````
 
 ```dart Flutter
 final res = await supabase.functions.invoke('create-trip', body: {
   'driver_id': userId,
-  'start_location': {'latitude': 6.5244, 'longitude': 3.3792},
-  'end_location': {'latitude': 7.3776, 'longitude': 3.9470},
+  'start_location': {'latitude': 6.5244, 'longitude': 3.3792, 'name': 'Ikeja'},
+  'end_location': {'latitude': 7.3776, 'longitude': 3.9470, 'name': 'Ibadan'},
   'price_per_seat_kobo': 150000,
   'total_seats': 3,
   'departure_time': '2025-03-15T08:00:00Z',
+  'trip_type': 'once',
+  'notes': 'AC available',
 });
 
 final trip = res.data['trip'];
-```
+````
+
 </CodeGroup>
+
+### Price Validation
+
+Drivers set their own price freely. The function validates it against a platform cap derived from the route distance:
+
+```
+max_allowed = base_price_per_km × distance_km × max_multiplier
+              capped at max_price_per_seat_kobo
+```
+
+Distance is calculated using the **Haversine formula** (straight-line approximation) via the `calculate_distance_km` database function. If the driver's price exceeds the cap, the request is rejected with the exact maximum allowed price in the error message.
 
 ### Errors
 
-| Status | Message |
-|--------|---------|
-| 403 | Driver not approved or not found |
-| 400 | Price per seat exceeds allowed limit |
-| 400 | Missing required fields |
+| Status | Message                                                                                             |
+| ------ | --------------------------------------------------------------------------------------------------- |
+| 400    | Missing required fields. start_location and end_location must include latitude, longitude, and name |
+| 400    | departure_time must be in the future                                                                |
+| 400    | total_seats must be between 1 and 10                                                                |
+| 400    | Price per seat exceeds the allowed limit of ₦X,XXX for this route                                   |
+| 403    | Driver not approved or not found                                                                    |
+| 500    | Could not calculate trip distance                                                                   |
 
 ---
 
@@ -116,19 +161,22 @@ final res = await supabase.functions.invoke('start-trip', body: {
   'trip_id': tripId,
 });
 ```
+
 </CodeGroup>
 
 ### Errors
 
-| Status | Message |
-|--------|---------|
-| 400 | Some passengers are not verified (returns list of pending passengers) |
-| 400 | No confirmed bookings for this trip |
-| 403 | Unauthorized: driver mismatch |
-| 400 | Trip cannot be started from status `{current_status}` |
+| Status | Message                                                               |
+| ------ | --------------------------------------------------------------------- |
+| 400    | Some passengers are not verified (returns list of pending passengers) |
+| 400    | No confirmed bookings for this trip                                   |
+| 403    | Unauthorized: driver mismatch                                         |
+| 400    | Trip cannot be started from status `{current_status}`                 |
 
 <Note>
-  If unverified passengers remain, the response includes a `pending_passengers` array with their names and phone numbers so the driver can contact them or mark them as no-shows before starting.
+  If unverified passengers remain, the response includes a `pending_passengers`
+  array with their names and phone numbers so the driver can contact them or
+  mark them as no-shows before starting.
 </Note>
 
 ---
@@ -164,7 +212,8 @@ const { data, error } = await supabase.functions.invoke('complete-trip', {
 })
 
 const payoutId = data?.payout_id
-```
+
+````
 
 ```dart Flutter
 final res = await supabase.functions.invoke('complete-trip', body: {
@@ -173,7 +222,8 @@ final res = await supabase.functions.invoke('complete-trip', body: {
 });
 
 final payoutId = res.data['payout_id'];
-```
+````
+
 </CodeGroup>
 
 ### What Happens Internally
@@ -189,9 +239,9 @@ final payoutId = res.data['payout_id'];
 
 ### Errors
 
-| Status | Message |
-|--------|---------|
-| 400 | No bookings to payout |
-| 200 | Active dispute exists, payout on hold |
-| 200 | Payout already scheduled |
-| 400 | Driver bank account not found |
+| Status | Message                               |
+| ------ | ------------------------------------- |
+| 400    | No bookings to payout                 |
+| 200    | Active dispute exists, payout on hold |
+| 200    | Payout already scheduled              |
+| 400    | Driver bank account not found         |

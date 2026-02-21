@@ -130,17 +130,44 @@ await supabase.functions.invoke("add-bank-account", {
 
 ## Step 5: Create a Trip
 
-```typescript
-const { data } = await supabase.functions.invoke("create-trip", {
+`start_location` and `end_location` must include `latitude`, `longitude`, and `name`. `departure_time` must be in the future.
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('create-trip', {
   body: {
     driver_id: userId,
-    start_location: { latitude: 6.5244, longitude: 3.3792 },
-    end_location: { latitude: 7.3776, longitude: 3.947 },
-    price_per_seat_kobo: 150000,
+    start_location: { latitude: 6.5244, longitude: 3.3792, name: 'Ikeja' },
+    end_location: { latitude: 7.3776, longitude: 3.9470, name: 'Ibadan' },
+    price_per_seat_kobo: 150000,  // ₦1,500 — validated against platform cap
     total_seats: 3,
-    departure_time: "2025-03-15T08:00:00Z",
-  },
+    departure_time: '2025-03-15T08:00:00Z',
+    trip_type: 'once',
+    notes: 'AC available',
+  }
+})
+
+if (error) console.error(error)
+const trip = data.trip
+
+````
+
+```dart Flutter
+final res = await supabase.functions.invoke('create-trip', body: {
+  'driver_id': userId,
+  'start_location': {'latitude': 6.5244, 'longitude': 3.3792, 'name': 'Ikeja'},
+  'end_location': {'latitude': 7.3776, 'longitude': 3.9470, 'name': 'Ibadan'},
+  'price_per_seat_kobo': 150000,
+  'total_seats': 3,
+  'departure_time': '2025-03-15T08:00:00Z',
+  'trip_type': 'once',
+  'notes': 'AC available',
 });
+
+final trip = res.data['trip'];
+````
+
+</CodeGroup>
 ```
 
 ---
