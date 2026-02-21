@@ -1,0 +1,211 @@
+---
+title: Admin Flow
+description: Admin and super admin capabilities and workflows
+---
+
+# Admin Flow
+
+The admin dashboard is a **Next.js web app** only. Admins authenticate with the same Supabase Auth but their accounts exist in the `super_admins` table, not the `profiles` table.
+
+## Admin Roles
+
+| Role | Capabilities |
+|------|-------------|
+| `admin` | Approve/reject drivers, manage disputes, view SOS alerts |
+| `super_admin` | Everything admin can do + manage pricing, commission, cancellation policy, freeze wallets, manage other admins, trigger manual payouts |
+
+---
+
+## Authenticate as Admin
+
+Same Supabase auth flow as regular users:
+
+```typescript
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'admin@axysride.com',
+  password: 'password',
+})
+```
+
+All admin Edge Functions validate the JWT against the `super_admins` table server-side. The client does not need to pass role information manually.
+
+---
+
+## Approve / Reject a Driver
+
+```typescript
+// Approve
+await supabase.functions.invoke('approve-driver', {
+  body: { driver_profile_id: driverProfileId, action: 'approve' }
+})
+
+// Reject
+await supabase.functions.invoke('approve-driver', {
+  body: {
+    driver_profile_id: driverProfileId,
+    action: 'reject',
+    rejection_reason: 'Vehicle photos are missing',
+  }
+})
+```
+
+Fetch pending driver applications:
+
+```typescript
+const { data: pendingDrivers } = await supabase
+  .from('driver_profiles')
+  .select(`
+    id, approval_status, created_at,
+    vehicle_make, vehicle_model, plate_number,
+    profiles!user_id (full_name, email, phone)
+  `)
+  .eq('approval_status', 'pending')
+  .order('created_at')
+```
+
+---
+
+## Manage Disputes
+
+Fetch open disputes:
+
+```typescript
+const { data: disputes } = await supabase
+  .from('disputes')
+  .select(`
+    id, type, status, description, payout_held, created_at,
+    profiles!raised_by (full_name),
+    profiles!against (full_name),
+    bookings (id, total_amount_kobo)
+  `)
+  .in('status', ['open', 'under_review'])
+  .order('created_at')
+```
+
+Resolve a dispute:
+
+```typescript
+await supabase.functions.invoke('resolve-dispute', {
+  body: {
+    dispute_id: disputeId,
+    resolution: 'resolved_for_passenger', // or 'resolved_for_driver' / 'closed'
+    resolution_note: 'Evidence confirmed overcharge. Refund issued.',
+  }
+})
+```
+
+---
+
+## View & Handle SOS Alerts
+
+```typescript
+// Fetch active SOS alerts
+const { data: alerts } = await supabase
+  .from('sos_alerts')
+  .select(`
+    id, location, ops_notified, resolved, created_at,
+    profiles!user_id (full_name, phone),
+    bookings (id, trip_id)
+  `)
+  .eq('resolved', false)
+  .order('created_at', { ascending: false })
+
+// Mark as resolved
+await supabase.from('sos_alerts')
+  .update({ resolved: true })
+  .eq('id', alertId)
+```
+
+Subscribe to new SOS alerts in real-time:
+
+```typescript
+supabase.channel('sos-alerts')
+  .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'sos_alerts',
+  }, (payload) => {
+    // Trigger alert sound/notification in admin dashboard
+    console.log('New SOS alert:', payload.new)
+  })
+  .subscribe()
+```
+
+---
+
+## Freeze / Unfreeze a Wallet
+
+```typescript
+// Freeze
+await supabase.functions.invoke('freeze-wallet', {
+  body: { user_id: targetUserId, freeze: true, reason: 'Fraudulent activity' }
+})
+
+// Unfreeze
+await supabase.functions.invoke('freeze-wallet', {
+  body: { user_id: targetUserId, freeze: false }
+})
+```
+
+---
+
+## Trigger Manual Payout
+
+```typescript
+// Fetch failed/pending payouts
+const { data: payouts } = await supabase
+  .from('payouts')
+  .select('*, profiles!driver_id (full_name)')
+  .in('status', ['pending', 'failed'])
+  .order('created_at')
+
+// Manually trigger
+await supabase.functions.invoke('manual-payout', {
+  body: { payout_id: payoutId }
+})
+```
+
+---
+
+## Manage Admins (Super Admin Only)
+
+```typescript
+// Create new admin
+await supabase.functions.invoke('manage-admin', {
+  body: {
+    action: 'create',
+    email: 'newadmin@axysride.com',
+    full_name: 'New Admin',
+    role: 'admin',
+    password: 'SecurePass123!',
+  }
+})
+
+// Deactivate admin
+await supabase.functions.invoke('manage-admin', {
+  body: { action: 'deactivate', admin_id: adminId }
+})
+
+// Change role
+await supabase.functions.invoke('manage-admin', {
+  body: { action: 'change_role', admin_id: adminId, new_role: 'super_admin' }
+})
+```
+
+---
+
+## View Audit Logs
+
+Every admin action is automatically logged to `admin_audit_logs`:
+
+```typescript
+const { data: logs } = await supabase
+  .from('admin_audit_logs')
+  .select(`
+    action, target_table, target_id,
+    old_value, new_value, ip_address, created_at,
+    profiles!admin_id (full_name, email)
+  `)
+  .order('created_at', { ascending: false })
+  .limit(50)
+```

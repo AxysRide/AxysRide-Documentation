@@ -1,0 +1,42 @@
+---
+title: Introduction
+description: Welcome to the AxysRide Backend Documentation
+---
+
+# AxysRide Backend Documentation
+
+This documentation is the source of truth for all frontend developers building on the AxysRide platform — whether you're working on the **Next.js web app** or the **Flutter mobile app**.
+
+## What is AxysRide?
+
+AxysRide is a ride-sharing platform built on **Supabase** (PostgreSQL + Auth + Edge Functions + Storage + Realtime). It connects passengers looking for rides with approved drivers, and handles the full lifecycle of trip booking, payments, payouts, and safety features.
+
+## How the Backend is Structured
+
+<CardGroup cols={2}>
+  <Card title="Database + RLS" icon="database">
+    All data lives in PostgreSQL. Row Level Security (RLS) is enforced on every table — the database itself is your security layer.
+  </Card>
+  <Card title="Edge Functions" icon="bolt">
+    Complex operations (payments, payouts, booking logic) are handled by Supabase Edge Functions running on Deno.
+  </Card>
+  <Card title="Auth" icon="lock">
+    Supabase Auth handles identity via Email/Password and Phone/OTP. Roles are stored in the `profiles` and `super_admins` tables.
+  </Card>
+  <Card title="Storage" icon="folder">
+    Three storage buckets handle user avatars, vehicle photos, and private driver documents.
+  </Card>
+</CardGroup>
+
+## Key Conventions
+
+<Note>
+  Read the [Conventions](/getting-started/conventions) page before writing any queries. It covers money handling, geography types, and role checking — all of which differ from typical backends.
+</Note>
+
+## Platforms
+
+| Platform | Stack | Notes |
+|----------|-------|-------|
+| Mobile App | Flutter | Passengers and Drivers |
+| Web Dashboard | Next.js | Admin panel only |

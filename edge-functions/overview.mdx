@@ -1,0 +1,62 @@
+---
+title: Edge Functions Overview
+description: All Edge Functions available in the AxysRide backend
+---
+
+# Edge Functions Overview
+
+Edge Functions are server-side functions that handle operations too sensitive or complex for the client — payments, payouts, booking logic, and admin actions.
+
+## Base URL
+
+```
+https://<your-project-ref>.supabase.co/functions/v1/<function-name>
+```
+
+## Authentication
+
+All functions (except webhook) require a Bearer token:
+
+```
+Authorization: Bearer <user-jwt-token>
+```
+
+The Supabase client handles this automatically via `supabase.functions.invoke()`.
+
+## Function Directory
+
+| Function | Method | Who Can Call | Description |
+|----------|--------|--------------|-------------|
+| `add-bank-account` | POST | Driver | Add/verify a payout bank account |
+| `approve-driver` | POST | Admin | Approve or reject a driver application |
+| `book-trip` | POST | Passenger | Book a seat on a trip |
+| `cancel-booking` | POST | Passenger | Cancel a booking with refund |
+| `complete-trip` | POST | Driver | Mark trip complete and schedule payout |
+| `create-trip` | POST | Driver | Create a new trip |
+| `freeze-wallet` | POST | Super Admin | Freeze or unfreeze a user wallet |
+| `fund-wallet` | POST | Passenger/Driver | Initiate wallet top-up via Paystack |
+| `get-paystack-banks` | GET | Driver | List Nigerian banks from Paystack |
+| `manage-admin` | POST | Super Admin | Create/deactivate/manage admin accounts |
+| `manual-payout` | POST | Super Admin | Manually trigger a driver payout |
+| `mark-no-show` | POST | Driver | Mark passenger as no-show |
+| `paystack-webhook` | POST | Paystack (server) | Handles all Paystack webhook events |
+| `process-payout` | POST | Cron / System | Auto-process due payouts |
+| `raise-dispute` | POST | Passenger/Driver | Raise a dispute on a booking |
+| `resolve-account-name` | POST | Driver | Resolve bank account name via Paystack |
+| `resolve-dispute` | POST | Admin | Resolve or close a dispute |
+| `start-trip` | POST | Driver | Start a scheduled trip |
+| `trigger-sos` | POST | Passenger/Driver | Trigger an SOS alert |
+| `verify-pin` | POST | Driver | Verify passenger boarding PIN |
+
+## CORS
+
+Functions called from the web app (Next.js) include CORS headers allowing requests from:
+- `http://localhost:3000`
+- `http://localhost:5173`
+- `https://axysride-admin.vercel.app`
+
+Mobile apps (Flutter) are not affected by CORS and work regardless.
+
+<Warning>
+  Never call `paystack-webhook`, `process-payout`, or `manage-admin` from the client app. These are server-to-server or system-level functions.
+</Warning>

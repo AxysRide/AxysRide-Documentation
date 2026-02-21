@@ -1,0 +1,187 @@
+---
+title: Authentication
+description: How authentication works in AxysRide
+---
+
+# Authentication
+
+AxysRide uses **Supabase Auth** with Email/Password and Phone/OTP. On signup, the database automatically creates a `profiles` row and an empty `wallets` row for the new user via a trigger.
+
+---
+
+## Sign Up
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.auth.signUp({
+  email: 'user@example.com',
+  password: 'password123',
+})
+
+if (error) console.error(error.message)
+
+// data.user contains the new user
+// data.session contains the JWT
+```
+
+```dart Flutter
+final AuthResponse res = await supabase.auth.signUp(
+  email: 'user@example.com',
+  password: 'password123',
+);
+
+final user = res.user;
+final session = res.session;
+```
+</CodeGroup>
+
+<Note>
+  After signup, a `profiles` row and `wallets` row are created automatically by the `handle_new_user` database trigger. You do not need to create these manually.
+</Note>
+
+---
+
+## Sign In
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'password123',
+})
+```
+
+```dart Flutter
+final AuthResponse res = await supabase.auth.signInWithPassword(
+  email: 'user@example.com',
+  password: 'password123',
+);
+```
+</CodeGroup>
+
+---
+
+## Phone / OTP Sign In
+
+<CodeGroup>
+```typescript Next.js
+// Step 1 — Send OTP
+await supabase.auth.signInWithOtp({ phone: '+2348012345678' })
+
+// Step 2 — Verify OTP
+const { data, error } = await supabase.auth.verifyOtp({
+  phone: '+2348012345678',
+  token: '123456',
+  type: 'sms',
+})
+```
+
+```dart Flutter
+// Step 1 — Send OTP
+await supabase.auth.signInWithOtp(phone: '+2348012345678');
+
+// Step 2 — Verify OTP
+final AuthResponse res = await supabase.auth.verifyOTP(
+  phone: '+2348012345678',
+  token: '123456',
+  type: OtpType.sms,
+);
+```
+</CodeGroup>
+
+---
+
+## Sign Out
+
+<CodeGroup>
+```typescript Next.js
+await supabase.auth.signOut()
+```
+
+```dart Flutter
+await supabase.auth.signOut();
+```
+</CodeGroup>
+
+---
+
+## Get Current User
+
+<CodeGroup>
+```typescript Next.js
+const { data: { user } } = await supabase.auth.getUser()
+const userId = user?.id
+```
+
+```dart Flutter
+final user = supabase.auth.currentUser;
+final userId = user?.id;
+```
+</CodeGroup>
+
+---
+
+## Listen to Auth State Changes
+
+<CodeGroup>
+```typescript Next.js
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN') {
+    console.log('User signed in:', session?.user)
+  }
+  if (event === 'SIGNED_OUT') {
+    // redirect to login
+  }
+})
+```
+
+```dart Flutter
+supabase.auth.onAuthStateChange.listen((data) {
+  final AuthChangeEvent event = data.event;
+  final Session? session = data.session;
+
+  if (event == AuthChangeEvent.signedIn) {
+    // navigate to home
+  }
+  if (event == AuthChangeEvent.signedOut) {
+    // navigate to login
+  }
+});
+```
+</CodeGroup>
+
+---
+
+## Session Persistence
+
+Supabase automatically persists the session locally. On app restart, the session is restored automatically — you do not need to manually handle token storage.
+
+---
+
+## User Roles
+
+After signing in, fetch the user's profile to determine their role:
+
+<CodeGroup>
+```typescript Next.js
+const { data: profile } = await supabase
+  .from('profiles')
+  .select('role, full_name, avatar_url')
+  .single()
+
+// profile.role will be 'passenger' or 'driver'
+```
+
+```dart Flutter
+final profile = await supabase
+    .from('profiles')
+    .select('role, full_name, avatar_url')
+    .single();
+
+final role = profile['role']; // 'passenger' or 'driver'
+```
+</CodeGroup>
+
+<Warning>
+  Admin users do not appear in the `profiles` table with admin roles. They are stored in the `super_admins` table. The admin dashboard (Next.js) checks admin status via Edge Functions, not via the `profiles` role column.
+</Warning>

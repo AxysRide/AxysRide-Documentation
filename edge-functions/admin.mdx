@@ -1,0 +1,201 @@
+---
+title: Admin Functions
+description: Edge Functions for admin operations — driver approval, wallet management, admin accounts
+---
+
+# Admin Edge Functions
+
+These functions are for the **admin dashboard (Next.js)** only. They require admin or super_admin JWT tokens.
+
+---
+
+## approve-driver
+
+Approves or rejects a pending driver application.
+
+**Who can call:** Admins and super admins
+
+### Request
+
+```json
+{
+  "driver_profile_id": "uuid",
+  "action": "approve",
+  "rejection_reason": null
+}
+```
+
+`action`: `approve` or `reject`  
+`rejection_reason`: Required when action is `reject`
+
+### Response
+
+```json
+{
+  "success": true,
+  "driver_profile_id": "uuid",
+  "approval_status": "approved"
+}
+```
+
+```typescript Next.js (Admin Dashboard)
+// Approve
+const { data, error } = await supabase.functions.invoke('approve-driver', {
+  body: {
+    driver_profile_id: driverProfileId,
+    action: 'approve',
+  }
+})
+
+// Reject
+const { data, error } = await supabase.functions.invoke('approve-driver', {
+  body: {
+    driver_profile_id: driverProfileId,
+    action: 'reject',
+    rejection_reason: 'License image is not clear',
+  }
+})
+```
+
+### What Happens Internally
+
+- Updates `driver_profiles.approval_status` to `approved` or `rejected`
+- If approved: updates `profiles.role` to `driver`
+- Sends an in-app notification to the driver
+- Logs the action to `admin_audit_logs`
+
+---
+
+## freeze-wallet
+
+Freezes or unfreezes a user's wallet. Frozen wallets cannot make or receive transactions.
+
+**Who can call:** Super admins only
+
+### Request
+
+```json
+{
+  "user_id": "uuid",
+  "freeze": true,
+  "reason": "Suspicious activity detected"
+}
+```
+
+`reason` is required when `freeze` is `true`.
+
+### Response
+
+```json
+{
+  "success": true,
+  "is_frozen": true
+}
+```
+
+```typescript Next.js (Admin Dashboard)
+// Freeze
+await supabase.functions.invoke('freeze-wallet', {
+  body: { user_id: targetUserId, freeze: true, reason: 'Suspicious activity' }
+})
+
+// Unfreeze
+await supabase.functions.invoke('freeze-wallet', {
+  body: { user_id: targetUserId, freeze: false }
+})
+```
+
+### What Happens Internally
+
+- Updates `wallets.is_frozen`
+- Sends user an in-app notification
+- Logs to `admin_audit_logs`
+
+---
+
+## manage-admin
+
+Full lifecycle management for admin accounts. All actions require super_admin role.
+
+**Who can call:** Super admins only
+
+### Actions
+
+#### Create Admin
+
+```json
+{
+  "action": "create",
+  "email": "admin@axysride.com",
+  "full_name": "Jane Admin",
+  "role": "admin",
+  "password": "SecurePass123!"
+}
+```
+
+`role`: `admin` or `super_admin`
+
+#### Deactivate Admin
+
+```json
+{
+  "action": "deactivate",
+  "admin_id": "uuid"
+}
+```
+
+Immediately revokes all active sessions for the admin.
+
+#### Reactivate Admin
+
+```json
+{
+  "action": "reactivate",
+  "admin_id": "uuid"
+}
+```
+
+#### Change Role
+
+```json
+{
+  "action": "change_role",
+  "admin_id": "uuid",
+  "new_role": "super_admin"
+}
+```
+
+Changing role also syncs to `app_metadata` in Supabase Auth so the JWT reflects the change immediately.
+
+```typescript Next.js (Admin Dashboard)
+// Create
+await supabase.functions.invoke('manage-admin', {
+  body: { action: 'create', email: 'newadmin@axysride.com', full_name: 'New Admin', role: 'admin', password: 'Pass123!' }
+})
+
+// Deactivate
+await supabase.functions.invoke('manage-admin', {
+  body: { action: 'deactivate', admin_id: adminId }
+})
+
+// Change role
+await supabase.functions.invoke('manage-admin', {
+  body: { action: 'change_role', admin_id: adminId, new_role: 'super_admin' }
+})
+```
+
+### Rules
+
+- A super admin **cannot** deactivate or change their own account
+- Deactivating an admin immediately signs them out of all sessions
+- All actions are logged to `admin_audit_logs`
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 403 | Forbidden: super_admin role required |
+| 409 | You cannot deactivate your own account |
+| 409 | You cannot change your own role |
+| 409 | An account with this email already exists |
+| 409 | Admin is already inactive/active |

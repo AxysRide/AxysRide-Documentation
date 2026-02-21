@@ -1,0 +1,136 @@
+---
+title: Wallets & Transactions
+description: Wallet balances, top-ups, and transaction history
+---
+
+# Wallets & Transactions
+
+## wallets
+
+Every user has exactly one wallet, created automatically on signup. All balances are in **kobo (NGN)**.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | uuid | FK to `profiles.id` (unique) |
+| `balance_kobo` | bigint | Available balance |
+| `ledger_balance_kobo` | bigint | Total ledger balance |
+| `currency` | text | Always `NGN` |
+| `is_frozen` | boolean | Frozen wallets cannot transact |
+
+<Warning>
+  Never update `balance_kobo` or `ledger_balance_kobo` directly. All balance changes happen through internal functions and Edge Functions only.
+</Warning>
+
+### Fetch Own Wallet
+
+<CodeGroup>
+```typescript Next.js
+const { data: wallet } = await supabase
+  .from('wallets')
+  .select('balance_kobo, ledger_balance_kobo, is_frozen, currency')
+  .single()
+
+// Display balance
+const balanceNaira = wallet.balance_kobo / 100
+```
+
+```dart Flutter
+final wallet = await supabase
+    .from('wallets')
+    .select('balance_kobo, ledger_balance_kobo, is_frozen, currency')
+    .single();
+
+final balanceNaira = wallet['balance_kobo'] / 100;
+```
+</CodeGroup>
+
+---
+
+## wallet_transactions
+
+An **immutable** ledger of every wallet movement. Rows can never be updated or deleted — even by admins. Reversals are written as new rows.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `wallet_id` | uuid | FK to `wallets.id` (null for system) |
+| `system_wallet_id` | uuid | FK to `system_wallets.id` (null for users) |
+| `type` | text | See types below |
+| `direction` | text | `credit` or `debit` |
+| `amount_kobo` | bigint | Always positive |
+| `balance_after_kobo` | bigint | Snapshot of balance after this transaction |
+| `reference` | text | Unique reference |
+| `description` | text | Human-readable description |
+| `booking_id` | uuid | Linked booking (if applicable) |
+| `payout_id` | uuid | Linked payout (if applicable) |
+| `status` | text | `completed`, `pending`, `failed`, `reversed` |
+
+### Transaction Types
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `topup` | credit | Wallet funded via Paystack |
+| `ride_debit` | debit | Payment for a booking |
+| `driver_credit` | credit | Driver earnings from completed trip |
+| `commission` | debit/credit | Platform commission |
+| `payout` | debit | Withdrawal to bank account |
+| `refund` | credit | Refund to passenger |
+| `reversal` | credit/debit | Dispute or error correction |
+
+### Fetch Transaction History
+
+<CodeGroup>
+```typescript Next.js
+const { data: transactions } = await supabase
+  .from('wallet_transactions')
+  .select('type, direction, amount_kobo, balance_after_kobo, description, created_at')
+  .order('created_at', { ascending: false })
+  .limit(20)
+```
+
+```dart Flutter
+final transactions = await supabase
+    .from('wallet_transactions')
+    .select('type, direction, amount_kobo, balance_after_kobo, description, created_at')
+    .order('created_at', ascending: false)
+    .limit(20);
+```
+</CodeGroup>
+
+---
+
+## wallet_topups
+
+Records every Paystack top-up attempt. Created when the user initiates a top-up, updated to `success` by the Paystack webhook.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | uuid | |
+| `amount_kobo` | bigint | Amount being topped up |
+| `paystack_reference` | text | Unique Paystack ref |
+| `paystack_channel` | text | `card`, `bank_transfer`, `ussd`, `qr` |
+| `status` | text | `pending`, `success`, `failed` |
+| `confirmed_at` | timestamptz | Set automatically on success |
+
+### Fetch Top-up History
+
+<CodeGroup>
+```typescript Next.js
+const { data: topups } = await supabase
+  .from('wallet_topups')
+  .select('amount_kobo, status, paystack_channel, confirmed_at, created_at')
+  .order('created_at', { ascending: false })
+```
+
+```dart Flutter
+final topups = await supabase
+    .from('wallet_topups')
+    .select('amount_kobo, status, paystack_channel, confirmed_at, created_at')
+    .order('created_at', ascending: false);
+```
+</CodeGroup>

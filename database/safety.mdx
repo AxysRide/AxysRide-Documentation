@@ -1,0 +1,216 @@
+---
+title: Disputes, Ratings & Safety
+description: Disputes, ratings, safety contacts, and SOS alerts
+---
+
+# Disputes, Ratings & Safety
+
+## disputes
+
+Users can raise disputes against another party on a completed or active booking.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `booking_id` | uuid | FK to `bookings.id` |
+| `raised_by` | uuid | User raising the dispute |
+| `against` | uuid | User being disputed |
+| `type` | text | `no_show`, `overcharge`, `safety`, `trip_not_completed`, `other` |
+| `description` | text | |
+| `status` | text | `open`, `under_review`, `resolved_for_passenger`, `resolved_for_driver`, `closed` |
+| `payout_held` | boolean | Driver payout is held while dispute is open |
+| `resolution_note` | text | Set by admin on resolution |
+| `resolved_by` | uuid | Admin who resolved |
+
+### Fetch Own Disputes
+
+<CodeGroup>
+```typescript Next.js
+const { data: disputes } = await supabase
+  .from('disputes')
+  .select('type, status, description, resolution_note, created_at')
+  .order('created_at', { ascending: false })
+```
+
+```dart Flutter
+final disputes = await supabase
+    .from('disputes')
+    .select('type, status, description, resolution_note, created_at')
+    .order('created_at', ascending: false);
+```
+</CodeGroup>
+
+---
+
+## ratings
+
+One rating per completed booking. Bidirectional — passenger rates driver, driver can rate passenger.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `booking_id` | uuid | FK to `bookings.id` |
+| `rater_id` | uuid | Who submitted the rating |
+| `ratee_id` | uuid | Who is being rated |
+| `score` | integer | 1–5 |
+| `comment` | text | Optional |
+
+<Note>
+  Ratings are immutable once submitted. The `update_profile_rating_avg` trigger automatically updates `profiles.rating_avg` when a new rating is inserted.
+</Note>
+
+### Submit a Rating
+
+<CodeGroup>
+```typescript Next.js
+const { error } = await supabase.from('ratings').insert({
+  booking_id: bookingId,
+  rater_id: userId,       // your own ID
+  ratee_id: driverId,     // who you're rating
+  score: 5,
+  comment: 'Great driver, very punctual!',
+})
+```
+
+```dart Flutter
+await supabase.from('ratings').insert({
+  'booking_id': bookingId,
+  'rater_id': userId,
+  'ratee_id': driverId,
+  'score': 5,
+  'comment': 'Great driver, very punctual!',
+});
+```
+</CodeGroup>
+
+---
+
+## safety_contacts
+
+Emergency contacts stored per user. Used when an SOS is triggered.
+
+### Manage Safety Contacts
+
+<CodeGroup>
+```typescript Next.js
+// Add contact
+await supabase.from('safety_contacts').insert({
+  user_id: userId,
+  name: 'John Doe',
+  phone: '+2348012345678',
+  relationship: 'Brother',
+  is_primary: true,
+})
+
+// Fetch contacts
+const { data: contacts } = await supabase
+  .from('safety_contacts')
+  .select('*')
+  .order('is_primary', { ascending: false })
+
+// Delete contact
+await supabase.from('safety_contacts').delete().eq('id', contactId)
+```
+
+```dart Flutter
+// Add
+await supabase.from('safety_contacts').insert({
+  'user_id': userId,
+  'name': 'John Doe',
+  'phone': '+2348012345678',
+  'relationship': 'Brother',
+  'is_primary': true,
+});
+
+// Fetch
+final contacts = await supabase
+    .from('safety_contacts')
+    .select()
+    .order('is_primary', ascending: false);
+
+// Delete
+await supabase.from('safety_contacts').delete().eq('id', contactId);
+```
+</CodeGroup>
+
+---
+
+## notifications
+
+In-app notifications for users. Supports Realtime for instant delivery.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `type` | text | `booking_request`, `accepted`, `trip_starting`, `payment`, `payout`, `refund` |
+| `title` | text | Short title |
+| `body` | text | Full message |
+| `data` | jsonb | Extra metadata (booking_id, payout_id etc.) |
+| `is_read` | boolean | Default false |
+
+### Fetch Notifications
+
+<CodeGroup>
+```typescript Next.js
+const { data: notifications } = await supabase
+  .from('notifications')
+  .select('*')
+  .order('created_at', { ascending: false })
+  .limit(30)
+
+// Mark as read
+await supabase
+  .from('notifications')
+  .update({ is_read: true })
+  .eq('id', notificationId)
+```
+
+```dart Flutter
+final notifications = await supabase
+    .from('notifications')
+    .select()
+    .order('created_at', ascending: false)
+    .limit(30);
+
+// Mark as read
+await supabase
+    .from('notifications')
+    .update({'is_read': true})
+    .eq('id', notificationId);
+```
+</CodeGroup>
+
+### Subscribe to Real-time Notifications
+
+<CodeGroup>
+```typescript Next.js
+const channel = supabase
+  .channel('notifications')
+  .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'notifications',
+  }, (payload) => {
+    console.log('New notification:', payload.new)
+    // Show in-app toast/banner
+  })
+  .subscribe()
+```
+
+```dart Flutter
+supabase
+    .channel('notifications')
+    .onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'notifications',
+      callback: (payload) {
+        print('New notification: ${payload.newRecord}');
+      },
+    )
+    .subscribe();
+```
+</CodeGroup>

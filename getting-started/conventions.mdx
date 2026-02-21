@@ -1,0 +1,135 @@
+---
+title: Conventions
+description: Important conventions all frontend developers must know
+---
+
+# Conventions
+
+## Money: Always in Kobo
+
+All financial values in the database use the `_kobo` suffix and are stored as `bigint`. **Never store or send naira values directly.**
+
+| Naira | Kobo |
+|-------|------|
+| ₦1 | 100 |
+| ₦500 | 50,000 |
+| ₦1,000 | 100,000 |
+
+```typescript
+// Next.js — converting for display
+const naira = amount_kobo / 100
+console.log(`₦${naira.toLocaleString()}`)
+```
+
+```dart
+// Flutter — converting for display
+final naira = amountKobo / 100;
+print('₦${naira.toStringAsFixed(2)}');
+```
+
+---
+
+## RLS: Never Pass User ID in Queries
+
+Supabase automatically attaches the logged-in user's JWT to every request. The database reads `auth.uid()` from that token internally. **You never need to filter by user_id manually.**
+
+```typescript
+// ✅ Correct — RLS handles the user filter automatically
+const { data } = await supabase.from('bookings').select('*')
+
+// ❌ Wrong — redundant and error-prone
+const { data } = await supabase.from('bookings').select('*').eq('passenger_id', userId)
+```
+
+```dart
+// ✅ Correct
+final data = await supabase.from('bookings').select();
+
+// ❌ Wrong
+final data = await supabase.from('bookings').select().eq('passenger_id', userId);
+```
+
+---
+
+## Geography: Coordinates
+
+Location columns use PostGIS `geography` type, stored as `POINT(longitude latitude)`. Note: **longitude comes first**, then latitude.
+
+```typescript
+// Next.js — sending a location
+const location = `POINT(${longitude} ${latitude})`
+
+// Example
+const location = 'POINT(3.3792 6.5244)' // Lagos
+```
+
+```dart
+// Flutter — sending a location
+final location = 'POINT($longitude $latitude)';
+```
+
+---
+
+## Roles
+
+There are three user roles in AxysRide:
+
+| Role | Table | Description |
+|------|-------|-------------|
+| `passenger` | `profiles` | Default role on signup |
+| `driver` | `profiles` | Set when driver is approved |
+| `admin` / `super_admin` | `super_admins` | Platform staff only |
+
+<Note>
+  Roles are stored in the **database**, not in JWT claims. Edge Functions check roles by querying the `super_admins` table directly, not from the token payload.
+</Note>
+
+---
+
+## Edge Function Calls
+
+All Edge Functions require the user's **Bearer token** in the Authorization header. The Supabase client handles this automatically when you use `supabase.functions.invoke()`.
+
+```typescript
+// Next.js — token is attached automatically
+const { data, error } = await supabase.functions.invoke('function-name', {
+  body: { key: 'value' }
+})
+```
+
+```dart
+// Flutter — token is attached automatically
+final res = await supabase.functions.invoke(
+  'function-name',
+  body: {'key': 'value'},
+);
+```
+
+---
+
+## Error Handling
+
+All Edge Functions return errors in this format:
+
+```json
+{ "error": "Human readable error message" }
+```
+
+Always check for errors before using the response data:
+
+```typescript
+const { data, error } = await supabase.functions.invoke('book-trip', { body: {...} })
+if (error) {
+  console.error(error.message)
+  return
+}
+```
+
+```dart
+try {
+  final res = await supabase.functions.invoke('book-trip', body: {...});
+  // use res.data
+} on FunctionException catch (e) {
+  print(e.details);
+}
+```

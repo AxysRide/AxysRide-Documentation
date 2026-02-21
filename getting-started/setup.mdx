@@ -1,0 +1,87 @@
+---
+title: Setup
+description: How to initialize the Supabase client in Next.js and Flutter
+---
+
+# Setup
+
+## Environment Variables
+
+You need two keys from your Supabase project dashboard under **Settings → API**:
+
+| Variable | Value | Used In |
+|----------|-------|---------|
+| `SUPABASE_URL` | Your project URL | Both platforms |
+| `SUPABASE_ANON_KEY` | Public anon key | Both platforms |
+
+<Warning>
+  Never use the **Service Role Key** on the client. It bypasses all RLS policies and gives full database access. It is only used inside Edge Functions.
+</Warning>
+
+---
+
+## Next.js Setup
+
+### Install
+
+```bash
+npm install @supabase/supabase-js
+```
+
+### Initialize Client
+
+Create a shared client at `lib/supabase.ts`:
+
+```typescript
+import { createClient } from '@supabase/supabase-js'
+
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+```
+
+Add to your `.env.local`:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+---
+
+## Flutter Setup
+
+### Install
+
+Add to `pubspec.yaml`:
+
+```yaml
+dependencies:
+  supabase_flutter: ^2.0.0
+```
+
+### Initialize
+
+In your `main.dart`, initialize before `runApp`:
+
+```dart
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://your-project.supabase.co',
+    anonKey: 'your-anon-key',
+  );
+
+  runApp(MyApp());
+}
+```
+
+Access the client anywhere:
+
+```dart
+final supabase = Supabase.instance.client;
+```

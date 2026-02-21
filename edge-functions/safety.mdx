@@ -1,0 +1,187 @@
+---
+title: Safety & Disputes
+description: Edge Functions for SOS alerts, disputes, and safety features
+---
+
+# Safety & Dispute Edge Functions
+
+## trigger-sos
+
+Triggers an emergency SOS alert. Notifies all active admins via in-app notifications and marks `ops_notified = true`.
+
+**Who can call:** Any authenticated user
+
+### Request
+
+```json
+{
+  "user_id": "uuid",
+  "booking_id": "uuid",
+  "latitude": 6.5244,
+  "longitude": 3.3792,
+  "contacts_notified": ["+2348012345678", "+2348098765432"]
+}
+```
+
+`booking_id` is optional. `contacts_notified` is a list of phone numbers already notified by the client app (e.g. via SMS SDK).
+
+### Response
+
+```json
+{
+  "message": "SOS triggered successfully",
+  "sos": {
+    "id": "uuid",
+    "ops_notified": true,
+    ...
+  }
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('trigger-sos', {
+  body: {
+    user_id: userId,
+    booking_id: activeBookingId,
+    latitude: currentLat,
+    longitude: currentLng,
+    contacts_notified: notifiedPhones,
+  }
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('trigger-sos', body: {
+  'user_id': userId,
+  'booking_id': activeBookingId,
+  'latitude': currentLat,
+  'longitude': currentLng,
+  'contacts_notified': notifiedPhones,
+});
+```
+</CodeGroup>
+
+### What Happens Internally
+
+1. Converts `latitude/longitude` to a PostGIS `POINT(longitude latitude)` geography value
+2. Inserts an `sos_alerts` row
+3. Fetches all active admins from `super_admins`
+4. Creates a notification for each admin
+5. Updates `ops_notified = true` on the SOS record
+
+---
+
+## raise-dispute
+
+Raises a dispute against another user on a specific booking.
+
+**Who can call:** Any authenticated user (passenger or driver)
+
+### Request
+
+```json
+{
+  "booking_id": "uuid",
+  "raised_by": "uuid",
+  "against": "uuid",
+  "type": "overcharge",
+  "description": "Driver charged more than the agreed price",
+  "evidence_urls": ["https://storage.../evidence1.jpg"]
+}
+```
+
+**Valid types:** `no_show`, `overcharge`, `safety`, `trip_not_completed`, `other`
+
+`evidence_urls` is optional — array of URLs to uploaded evidence files.
+
+### Response
+
+```json
+{
+  "message": "Dispute raised successfully",
+  "dispute": {
+    "id": "uuid",
+    "status": "open",
+    "payout_held": true,
+    ...
+  }
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('raise-dispute', {
+  body: {
+    booking_id: bookingId,
+    raised_by: userId,
+    against: driverId,
+    type: 'overcharge',
+    description: 'Driver charged more than the agreed price',
+    evidence_urls: [],
+  }
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('raise-dispute', body: {
+  'booking_id': bookingId,
+  'raised_by': userId,
+  'against': driverId,
+  'type': 'overcharge',
+  'description': 'Driver charged more than the agreed price',
+  'evidence_urls': [],
+});
+```
+</CodeGroup>
+
+<Note>
+  When a dispute is raised, the `hold_payout_on_dispute` trigger automatically sets `payout_held = true` on the related payout, freezing the driver's earnings until the dispute is resolved.
+</Note>
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 404 | Booking not found |
+| 400 | Invalid dispute type |
+| 400 | Missing required fields |
+
+---
+
+## resolve-dispute
+
+Resolves a dispute. Can refund the passenger or release the driver's payout. Admin only.
+
+**Who can call:** Admins and super admins (via admin dashboard)
+
+### Request
+
+```json
+{
+  "dispute_id": "uuid",
+  "resolution": "resolved_for_passenger",
+  "resolution_note": "Evidence confirmed overcharge. Refund issued."
+}
+```
+
+**Valid resolutions:** `resolved_for_passenger`, `resolved_for_driver`, `closed`
+
+### Response
+
+```json
+{
+  "success": true,
+  "resolution": "resolved_for_passenger"
+}
+```
+
+### What Happens Per Resolution
+
+| Resolution | Action |
+|-----------|--------|
+| `resolved_for_passenger` | Debits driver wallet, credits passenger wallet, marks booking `refunded` |
+| `resolved_for_driver` | Releases held payout back to `pending`, schedules for 30 minutes |
+| `closed` | Closes dispute without financial action |
+
+Both parties receive a notification explaining the outcome.

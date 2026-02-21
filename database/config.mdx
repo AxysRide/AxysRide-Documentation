@@ -1,0 +1,91 @@
+---
+title: Config Tables
+description: Platform configuration tables — cancellation policies, commission, and pricing
+---
+
+# Config Tables
+
+These tables are managed by super admins only. Frontend apps read from them to display pricing and refund information to users.
+
+## cancellation_policies
+
+Defines refund percentages for different cancellation scenarios. Only one policy is active at a time.
+
+### Key Columns
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `passenger_before_accept_refund_pct` | integer | Refund % if passenger cancels before driver accepts |
+| `passenger_after_accept_refund_pct` | integer | Refund % if passenger cancels after driver accepts |
+| `passenger_after_start_refund_pct` | integer | Refund % if passenger cancels after trip starts |
+| `driver_cancel_passenger_refund_pct` | integer | Refund % if driver cancels |
+| `driver_cancel_penalty_pct` | integer | Penalty % deducted from driver |
+| `no_show_refund_pct` | integer | Refund % for passenger no-show |
+| `is_active` | boolean | Only one active policy at a time |
+
+### Fetch Active Policy
+
+<CodeGroup>
+```typescript Next.js
+const { data: policy } = await supabase
+  .from('cancellation_policies')
+  .select('*')
+  .eq('is_active', true)
+  .single()
+```
+
+```dart Flutter
+final policy = await supabase
+    .from('cancellation_policies')
+    .select()
+    .eq('is_active', true)
+    .single();
+```
+</CodeGroup>
+
+---
+
+## price_config
+
+Defines base pricing rules used to validate driver-set prices.
+
+### Key Columns
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `base_price_per_km_kobo` | bigint | Base rate per km |
+| `max_multiplier` | numeric | Max driver can charge above base |
+| `max_price_per_seat_kobo` | bigint | Hard cap per seat |
+| `is_active` | boolean | |
+| `applies_from` | timestamptz | Optional scheduled start |
+| `applies_to` | timestamptz | Optional scheduled end |
+
+### Fetch Active Pricing
+
+<CodeGroup>
+```typescript Next.js
+const { data: pricing } = await supabase
+  .from('price_config')
+  .select('base_price_per_km_kobo, max_multiplier, max_price_per_seat_kobo')
+  .eq('is_active', true)
+  .single()
+```
+
+```dart Flutter
+final pricing = await supabase
+    .from('price_config')
+    .select('base_price_per_km_kobo, max_multiplier, max_price_per_seat_kobo')
+    .eq('is_active', true)
+    .single();
+```
+</CodeGroup>
+
+---
+
+## commission_config
+
+Defines the platform commission rate applied to bookings.
+
+<Note>
+  Regular users and drivers cannot read this table. It is admin-only. Commission is automatically applied to bookings via the `calculate_booking_financials` trigger — you never need to read this table on the client.
+</Note>

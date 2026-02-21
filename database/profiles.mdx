@@ -1,0 +1,202 @@
+---
+title: Profiles & Drivers
+description: User profile and driver profile tables
+---
+
+# Profiles & Driver Profiles
+
+## profiles
+
+The core user table. Created automatically when a user signs up via the `handle_new_user` trigger.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | Matches `auth.uid()` |
+| `email` | text | |
+| `phone` | text | |
+| `full_name` | text | |
+| `avatar_url` | text | URL from `avatars` storage bucket |
+| `role` | text | `passenger` (default) or `driver` |
+| `rating_avg` | numeric | Auto-updated by trigger on new rating |
+| `is_phone_verified` | boolean | |
+| `cancellations_this_week` | integer | Reset every Monday by cron job |
+
+### Fetch Own Profile
+
+<CodeGroup>
+```typescript Next.js
+const { data: profile, error } = await supabase
+  .from('profiles')
+  .select('*')
+  .single()
+```
+
+```dart Flutter
+final profile = await supabase
+    .from('profiles')
+    .select()
+    .single();
+```
+</CodeGroup>
+
+### Update Profile
+
+<CodeGroup>
+```typescript Next.js
+const { error } = await supabase
+  .from('profiles')
+  .update({
+    full_name: 'John Doe',
+    avatar_url: 'https://...',
+  })
+  .eq('id', userId)
+```
+
+```dart Flutter
+await supabase
+    .from('profiles')
+    .update({'full_name': 'John Doe'})
+    .eq('id', userId);
+```
+</CodeGroup>
+
+### Upload Avatar
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.storage
+  .from('avatars')
+  .upload(`${userId}/avatar.png`, file, { upsert: true })
+
+// Then update profiles.avatar_url with the public URL
+const { data: { publicUrl } } = supabase.storage
+  .from('avatars')
+  .getPublicUrl(`${userId}/avatar.png`)
+
+await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', userId)
+```
+
+```dart Flutter
+final String path = await supabase.storage
+    .from('avatars')
+    .upload('$userId/avatar.png', file,
+        fileOptions: const FileOptions(upsert: true));
+
+final publicUrl = supabase.storage.from('avatars').getPublicUrl('$userId/avatar.png');
+await supabase.from('profiles').update({'avatar_url': publicUrl}).eq('id', userId);
+```
+</CodeGroup>
+
+---
+
+## driver_profiles
+
+Stores vehicle and license details for drivers. Created by the user after signup. Must be approved by an admin before the driver can create trips.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | uuid | FK to `profiles.id` |
+| `license_number` | text | |
+| `license_expiry` | date | Must be in the future |
+| `license_image_url` | text | From `driver-docs` bucket (private) |
+| `vehicle_make` | text | e.g. Toyota |
+| `vehicle_model` | text | e.g. Camry |
+| `vehicle_year` | integer | |
+| `vehicle_color` | text | |
+| `plate_number` | text | Unique |
+| `vehicle_photo_url` | text | From `vehicle-photos` bucket |
+| `total_seats` | integer | 1–7 |
+| `approval_status` | text | `pending`, `approved`, `rejected` |
+| `approved_at` | timestamptz | Set automatically on approval |
+
+### Submit Driver Application
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase
+  .from('driver_profiles')
+  .insert({
+    user_id: userId,
+    license_number: 'LIC123456',
+    license_expiry: '2027-01-01',
+    vehicle_make: 'Toyota',
+    vehicle_model: 'Camry',
+    vehicle_year: 2020,
+    vehicle_color: 'Black',
+    plate_number: 'LAG-123-XY',
+    total_seats: 4,
+  })
+```
+
+```dart Flutter
+await supabase.from('driver_profiles').insert({
+  'user_id': userId,
+  'license_number': 'LIC123456',
+  'license_expiry': '2027-01-01',
+  'vehicle_make': 'Toyota',
+  'vehicle_model': 'Camry',
+  'vehicle_year': 2020,
+  'vehicle_color': 'Black',
+  'plate_number': 'LAG-123-XY',
+  'total_seats': 4,
+});
+```
+</CodeGroup>
+
+### Check Approval Status
+
+<CodeGroup>
+```typescript Next.js
+const { data } = await supabase
+  .from('driver_profiles')
+  .select('approval_status, approved_at')
+  .single()
+```
+
+```dart Flutter
+final data = await supabase
+    .from('driver_profiles')
+    .select('approval_status, approved_at')
+    .single();
+```
+</CodeGroup>
+
+<Note>
+  `approval_status` can only be changed by an admin via the `approve-driver` Edge Function. Drivers cannot update this field directly.
+</Note>
+
+### Upload Driver Documents
+
+Driver license images go into the **private** `driver-docs` bucket. Vehicle photos go into the **public** `vehicle-photos` bucket.
+
+<CodeGroup>
+```typescript Next.js
+// Upload license image (private bucket)
+await supabase.storage
+  .from('driver-docs')
+  .upload(`${userId}/license.jpg`, file, { upsert: true })
+
+// Upload vehicle photo (public bucket)
+await supabase.storage
+  .from('vehicle-photos')
+  .upload(`${userId}/vehicle.jpg`, file, { upsert: true })
+```
+
+```dart Flutter
+// License (private)
+await supabase.storage
+    .from('driver-docs')
+    .upload('$userId/license.jpg', file,
+        fileOptions: const FileOptions(upsert: true));
+
+// Vehicle photo (public)
+await supabase.storage
+    .from('vehicle-photos')
+    .upload('$userId/vehicle.jpg', file,
+        fileOptions: const FileOptions(upsert: true));
+```
+</CodeGroup>

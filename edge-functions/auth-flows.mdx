@@ -1,0 +1,59 @@
+---
+title: Background Jobs & Triggers
+description: Cron jobs, database triggers, and automated background processes
+---
+
+# Background Jobs & Triggers
+
+## Cron Jobs
+
+### reset-cancel-count
+
+Runs every **Monday at midnight** to reset the weekly cancellation counter for all users.
+
+```
+Schedule: 0 0 * * 1
+Action:   UPDATE profiles SET cancellations_this_week = 0;
+```
+
+This counter tracks how many times a user has cancelled a booking in the current week. It can be used to limit or flag users who frequently cancel.
+
+---
+
+## Database Triggers
+
+These run automatically on the database — you never need to call them from the frontend.
+
+| Trigger | Table | When | What it does |
+|---------|-------|------|--------------|
+| `handle_new_user` | `auth.users` | AFTER INSERT | Creates `profiles` and `wallets` rows |
+| `calculate_booking_financials` | `bookings` | BEFORE INSERT or UPDATE | Calculates `commission_kobo` and `driver_credit_kobo` from active `commission_config` |
+| `generate_trip_pin` | `bookings` | BEFORE INSERT | Auto-generates a secure 4-digit `trip_pin` |
+| `update_trip_seats` | `bookings` | AFTER UPDATE | Increments/decrements `trips.seats_available` when booking is accepted or cancelled |
+| `update_profile_rating_avg` | `ratings` | AFTER INSERT | Recalculates `profiles.rating_avg` for the ratee |
+| `prevent_wallet_tx_mutation` | `wallet_transactions` | BEFORE UPDATE or DELETE | Throws an error — wallet transactions are immutable |
+| `enforce_wallet_topup_state` | `wallet_topups` | BEFORE UPDATE | Prevents a `success` or `failed` topup from reverting status |
+| `set_driver_approved_at` | `driver_profiles` | BEFORE UPDATE | Automatically sets `approved_at` timestamp when status changes to `approved` |
+| `enforce_single_active_cancellation_policy` | `cancellation_policies` | BEFORE INSERT or UPDATE | Ensures only one policy has `is_active = true` |
+| `enforce_single_active_commission` | `commission_config` | BEFORE INSERT or UPDATE | Ensures only one commission config is active |
+| `enforce_payout_status` | `payouts` | BEFORE UPDATE | Prevents invalid status transitions |
+| `set_payout_completed_at` | `payouts` | BEFORE UPDATE | Sets `completed_at` when status changes to `success` |
+| `hold_payout_on_dispute` | `disputes` | BEFORE INSERT | Sets `payout_held = true` on the related payout |
+
+---
+
+## Storage Buckets
+
+| Bucket | Access | Used For |
+|--------|--------|----------|
+| `avatars` | Public | User profile pictures |
+| `vehicle-photos` | Public | Driver vehicle photos |
+| `driver-docs` | Private | Driver licenses, ID documents |
+
+### File Size & Type Recommendations
+
+| Bucket | Recommended Max Size | Types |
+|--------|---------------------|-------|
+| `avatars` | 2 MB | `image/jpeg`, `image/png`, `image/webp` |
+| `vehicle-photos` | 5 MB | `image/jpeg`, `image/png` |
+| `driver-docs` | 10 MB | `image/jpeg`, `image/png`, `application/pdf` |

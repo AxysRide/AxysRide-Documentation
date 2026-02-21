@@ -1,0 +1,71 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "AxysRide Backend Docs",
+  "logo": {
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png"
+  },
+  "favicon": "/favicon.ico",
+  "colors": {
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5"
+  },
+  "topbarLinks": [],
+  "topbarCtaButton": {
+    "name": "Dashboard",
+    "url": "https://axysride-admin.vercel.app"
+  },
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "getting-started/introduction",
+        "getting-started/setup",
+        "getting-started/conventions"
+      ]
+    },
+    {
+      "group": "Authentication",
+      "pages": [
+        "authentication/overview"
+      ]
+    },
+    {
+      "group": "Database",
+      "pages": [
+        "database/overview",
+        "database/profiles",
+        "database/trips",
+        "database/bookings",
+        "database/wallets",
+        "database/payouts",
+        "database/disputes",
+        "database/safety",
+        "database/config"
+      ]
+    },
+    {
+      "group": "Edge Functions",
+      "pages": [
+        "edge-functions/overview",
+        "edge-functions/auth-flows",
+        "edge-functions/trip-lifecycle",
+        "edge-functions/booking-lifecycle",
+        "edge-functions/payments",
+        "edge-functions/payouts",
+        "edge-functions/safety",
+        "edge-functions/admin"
+      ]
+    },
+    {
+      "group": "User Flows",
+      "pages": [
+        "flows/passenger",
+        "flows/driver",
+        "flows/admin"
+      ]
+    }
+  ],
+  "footerSocials": {}
+}

@@ -1,0 +1,262 @@
+---
+title: Booking Lifecycle
+description: Edge Functions for booking, cancelling, pin verification, and no-shows
+---
+
+# Booking Lifecycle Edge Functions
+
+## book-trip
+
+Books a seat on a trip. Automatically handles payment via wallet (if sufficient balance) or redirects to Paystack.
+
+**Who can call:** Authenticated passengers
+
+### Request
+
+```json
+{
+  "user_id": "uuid",
+  "trip_id": "uuid",
+  "seats_requested": 1,
+  "passenger_email": "user@example.com",
+  "payment_channel": "card"
+}
+```
+
+`payment_channel` options: `card`, `bank_transfer`, `ussd`
+
+### Response — Wallet Payment (sufficient balance)
+
+```json
+{
+  "booking": { "id": "uuid", "status": "pending", ... },
+  "paid": true
+}
+```
+
+### Response — Paystack Payment (insufficient balance)
+
+```json
+{
+  "booking": { "id": "uuid", "status": "pending", ... },
+  "paid": false,
+  "payment_url": "https://checkout.paystack.com/..."
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('book-trip', {
+  body: {
+    user_id: userId,
+    trip_id: tripId,
+    seats_requested: 1,
+    passenger_email: userEmail,
+    payment_channel: 'card',
+  }
+})
+
+if (data.paid) {
+  // Booking paid via wallet — redirect to confirmation
+} else {
+  // Open Paystack checkout
+  window.open(data.payment_url, '_blank')
+}
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('book-trip', body: {
+  'user_id': userId,
+  'trip_id': tripId,
+  'seats_requested': 1,
+  'passenger_email': userEmail,
+  'payment_channel': 'card',
+});
+
+if (res.data['paid'] == true) {
+  // Paid via wallet
+} else {
+  // Launch Paystack URL
+  final url = Uri.parse(res.data['payment_url']);
+  await launchUrl(url);
+}
+```
+</CodeGroup>
+
+### What Happens Internally
+
+1. Fetches trip and validates it exists
+2. Calculates `booking_amount_kobo = price_per_seat_kobo × seats_requested`
+3. Creates a `bookings` row (status: `pending`)
+4. The `calculate_booking_financials` trigger auto-sets `commission_kobo` and `driver_credit_kobo`
+5. The `generate_trip_pin` trigger auto-generates a 4-digit `trip_pin`
+6. If wallet balance is sufficient → calls `process_payment_split` RPC and returns `paid: true`
+7. If wallet balance is insufficient → initializes Paystack charge and returns `payment_url`
+
+---
+
+## cancel-booking
+
+Cancels a booking and processes a refund based on the active cancellation policy.
+
+**Who can call:** Passenger who owns the booking
+
+### Request
+
+```json
+{
+  "passenger_id": "uuid",
+  "booking_id": "uuid",
+  "reason": "Changed plans"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Booking cancelled successfully",
+  "booking": { "id": "uuid", "status": "cancelled", ... },
+  "refund_amount_kobo": 75000
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('cancel-booking', {
+  body: {
+    passenger_id: userId,
+    booking_id: bookingId,
+    reason: 'Changed plans',
+  }
+})
+
+const refundNaira = data.refund_amount_kobo / 100
+console.log(`Refund of ₦${refundNaira} issued`)
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('cancel-booking', body: {
+  'passenger_id': userId,
+  'booking_id': bookingId,
+  'reason': 'Changed plans',
+});
+
+final refund = res.data['refund_amount_kobo'] / 100;
+print('Refund: ₦$refund');
+```
+</CodeGroup>
+
+### Refund Logic
+
+| Booking Status | Refund % |
+|----------------|----------|
+| `pending` (before driver accepts) | `passenger_before_accept_refund_pct` |
+| `accepted` (after driver accepts) | `passenger_after_accept_refund_pct` |
+| After trip has started | `passenger_after_start_refund_pct` |
+
+Refund percentages come from the active `cancellation_policies` row.
+
+---
+
+## verify-pin
+
+Driver enters the passenger's 4-digit PIN to verify they have boarded.
+
+**Who can call:** Driver who owns the trip
+
+### Request
+
+```json
+{
+  "driver_id": "uuid",
+  "booking_id": "uuid",
+  "boarding_pin": "4821"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Passenger verified",
+  "booking": { "id": "uuid", "pin_verified": true, ... }
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('verify-pin', {
+  body: {
+    driver_id: userId,
+    booking_id: bookingId,
+    boarding_pin: pinInput,
+  }
+})
+
+if (error) {
+  // Show "Invalid boarding PIN" error to driver
+}
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('verify-pin', body: {
+  'driver_id': userId,
+  'booking_id': bookingId,
+  'boarding_pin': pinInput,
+});
+```
+</CodeGroup>
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 400 | Invalid boarding PIN |
+| 200 | Passenger already verified |
+| 403 | Unauthorized: driver mismatch |
+
+---
+
+## mark-no-show
+
+Marks a passenger as a no-show after 10 minutes have passed. Processes wallet adjustments according to the no-show refund policy.
+
+**Who can call:** Driver who owns the trip
+
+### Request
+
+```json
+{
+  "booking_id": "uuid"
+}
+```
+
+### Response
+
+```
+"Booking marked as no-show and wallet adjustments done"
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('mark-no-show', {
+  body: { booking_id: bookingId }
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('mark-no-show', body: {
+  'booking_id': bookingId,
+});
+```
+</CodeGroup>
+
+### What Happens Internally
+
+1. Verifies 10 minutes have passed since booking creation
+2. Applies `no_show_refund_pct` from the active cancellation policy
+3. Credits passenger wallet with refund amount (if > 0)
+4. Debits driver wallet of their credit for that booking
+5. Adjusts system wallet commission accordingly
+6. Updates booking status to `cancelled` with `cancel_reason: no_show`

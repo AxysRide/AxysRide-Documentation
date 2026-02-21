@@ -1,0 +1,67 @@
+---
+title: Database Overview
+description: All tables in the AxysRide database and their purpose
+---
+
+# Database Overview
+
+All tables live in the `public` schema on Supabase PostgreSQL. Every table has **Row Level Security (RLS) enabled** — users only see and modify data they are permitted to access based on their JWT.
+
+---
+
+## Table Reference
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | Core user data for all users |
+| `driver_profiles` | Driver-specific details, vehicle info, approval status |
+| `trips` | Trips created by drivers |
+| `trip_waypoints` | Ordered stops along a trip route |
+| `bookings` | Passenger bookings on a trip |
+| `wallets` | User wallet balances (in kobo) |
+| `wallet_transactions` | Immutable ledger of all wallet movements |
+| `wallet_topups` | Paystack top-up records |
+| `payouts` | Driver bank payout records |
+| `driver_bank_accounts` | Driver bank details for payouts |
+| `driver_locations` | Real-time GPS pings during a trip |
+| `ratings` | Post-trip ratings between passengers and drivers |
+| `disputes` | Booking disputes raised by users |
+| `notifications` | In-app notifications |
+| `safety_contacts` | Emergency contacts per user |
+| `sos_alerts` | SOS events triggered by users |
+| `cancellation_policies` | Platform refund rules |
+| `commission_config` | Platform commission rates |
+| `price_config` | Price caps and per-km base rates |
+| `app_config` | Internal key-value platform settings |
+| `super_admins` | Admin/super_admin accounts |
+| `admin_audit_logs` | Immutable log of all admin actions |
+| `system_wallets` | Platform's own wallet for commission tracking |
+| `account_recovery_requests` | Phone change/recovery requests |
+
+---
+
+## RLS Access Summary
+
+| Table | Passenger | Driver | Admin |
+|-------|-----------|--------|-------|
+| `profiles` | Own row | Own row | All |
+| `trips` | Read active | Own trips | All |
+| `bookings` | Own bookings | Bookings on own trips | All |
+| `wallets` | Own wallet | Own wallet | All |
+| `wallet_transactions` | Own transactions | Own transactions | All |
+| `driver_profiles` | Read approved (on shared trip) | Own profile | All |
+| `driver_locations` | Read (on active booking) | Own locations | All |
+| `payouts` | None | Own payouts | All |
+| `disputes` | Own disputes | Own disputes | All |
+| `notifications` | Own | Own | All |
+| `commission_config` | None | None | Read (super_admin write) |
+| `price_config` | Active only | Active only | All |
+| `cancellation_policies` | Active only | Active only | All |
+| `app_config` | None | None | All |
+| `super_admins` | None | None | All |
+| `admin_audit_logs` | None | None | All |
+| `system_wallets` | None | None | All |
+
+<Note>
+  You never need to add `.eq('user_id', userId)` to your queries. RLS handles this automatically using `auth.uid()` from the JWT.
+</Note>

@@ -1,0 +1,143 @@
+---
+title: Payouts
+description: Edge Functions for driver payouts and bank transfers
+---
+
+# Payout Edge Functions
+
+## process-payout
+
+A system-level function that processes all pending auto-payouts whose `scheduled_at` time has passed. This is called by a cron job or scheduled task — **not by the client**.
+
+**Who can call:** System / cron only
+
+### What Happens Internally
+
+1. Fetches all `payouts` where `status = pending`, `trigger_type = auto`, `payout_held = false`, and `scheduled_at <= now()`
+2. For each payout, verifies driver wallet has sufficient balance
+3. Initiates a Paystack transfer to the driver's `recipient_code`
+4. Updates payout to `processing`
+5. Debits driver wallet via `debit_wallet` RPC
+6. On failure, schedules a retry in 1 hour (max 3 retries)
+
+---
+
+## manual-payout
+
+Allows a super admin to manually trigger a pending or failed payout via the admin dashboard.
+
+**Who can call:** Super admins only
+
+### Request
+
+```json
+{
+  "payout_id": "uuid"
+}
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "payout_id": "uuid",
+  "transfer_code": "TRF_xxxxx"
+}
+```
+
+<CodeGroup>
+```typescript Next.js (Admin Dashboard)
+const { data, error } = await supabase.functions.invoke('manual-payout', {
+  body: { payout_id: payoutId }
+})
+```
+
+```dart Flutter
+// Admin app only
+final res = await supabase.functions.invoke('manual-payout', body: {
+  'payout_id': payoutId,
+});
+```
+</CodeGroup>
+
+### Validations
+
+- Payout status must be `pending` or `failed`
+- Retry count must be less than 3
+- Driver wallet must not be frozen
+- Driver wallet must have sufficient balance
+- No open disputes on the related trip
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 409 | Cannot manually trigger a payout with status `{status}` |
+| 409 | Max retry attempts reached |
+| 409 | Driver wallet is frozen |
+| 409 | Insufficient wallet balance for this payout |
+| 409 | Cannot process payout — there is an open dispute on this trip |
+| 502 | Paystack transfer failed |
+
+---
+
+## paystack-webhook
+
+Single webhook endpoint registered in Paystack dashboard. Routes all Paystack events to the correct handler.
+
+**Who can call:** Paystack servers only (verified by HMAC signature)
+
+### Webhook URL
+
+```
+https://<project-ref>.supabase.co/functions/v1/paystack-webhook
+```
+
+Register this single URL in your **Paystack Dashboard → Settings → API Keys & Webhooks**.
+
+### Events Handled
+
+| Event | Handler |
+|-------|---------|
+| `charge.success` + `metadata.type = wallet_topup` | Credits user wallet |
+| `charge.success` + `metadata.type = booking_payment` | Marks booking as paid, splits payment |
+| `transfer.success` | Marks payout as success, notifies driver |
+| `transfer.failed` | Retries payout (up to 3x) or marks as failed |
+| `transfer.reversed` | Same as transfer.failed handler |
+
+### HMAC Verification
+
+Every incoming webhook is verified using the `x-paystack-signature` header against your `PAYSTACK_SECRET_KEY`. Invalid signatures are rejected with `401`.
+
+<Warning>
+  The webhook always returns `200 OK` even on internal errors, to prevent Paystack from retrying. Internal errors are logged via `console.error` and should be monitored in the Supabase Edge Function logs.
+</Warning>
+
+### Metadata Requirements
+
+For `charge.success` events to route correctly, your Paystack transaction initialization must include the correct metadata:
+
+**Wallet top-up:**
+```json
+{
+  "metadata": {
+    "type": "wallet_topup",
+    "user_id": "uuid"
+  }
+}
+```
+
+**Booking payment:**
+```json
+{
+  "metadata": {
+    "type": "booking_payment",
+    "booking_id": "uuid",
+    "passenger_id": "uuid",
+    "passenger_email": "user@example.com"
+  }
+}
+```
+
+This is already handled automatically by `fund-wallet` and `book-trip` Edge Functions.

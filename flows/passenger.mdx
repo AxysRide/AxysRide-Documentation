@@ -1,0 +1,159 @@
+---
+title: Passenger Flow
+description: Complete step-by-step flow for a passenger using AxysRide
+---
+
+# Passenger Flow
+
+## Full Journey
+
+```
+Sign Up → Fund Wallet → Search Trip → Book → Pay → Ride → Rate
+```
+
+---
+
+## Step 1: Sign Up
+
+```typescript
+const { data, error } = await supabase.auth.signUp({
+  email: 'passenger@example.com',
+  password: 'password123',
+})
+```
+
+**What happens automatically:**
+- `profiles` row created (role: `passenger`)
+- `wallets` row created with `balance_kobo: 0`
+
+---
+
+## Step 2: Fund Wallet
+
+```typescript
+const { data } = await supabase.functions.invoke('fund-wallet', {
+  body: { amount_kobo: 500000, channel: 'card' }
+})
+// Redirect user to data.authorization_url
+// After payment → webhook credits wallet automatically
+```
+
+---
+
+## Step 3: Browse Trips
+
+```typescript
+const { data: trips } = await supabase
+  .from('trips')
+  .select(`
+    id, origin_name, destination_name,
+    departure_time, seats_available, price_per_seat_kobo,
+    profiles!driver_id (full_name, rating_avg)
+  `)
+  .in('status', ['scheduled', 'active'])
+  .gt('seats_available', 0)
+  .order('departure_time')
+```
+
+---
+
+## Step 4: Book a Trip
+
+```typescript
+const { data } = await supabase.functions.invoke('book-trip', {
+  body: {
+    user_id: userId,
+    trip_id: tripId,
+    seats_requested: 1,
+    passenger_email: userEmail,
+    payment_channel: 'card',
+  }
+})
+
+if (data.paid) {
+  // Paid via wallet — show booking confirmation
+  // Show data.booking.trip_pin to the passenger
+} else {
+  // Open Paystack URL for card payment
+  window.open(data.payment_url)
+}
+```
+
+---
+
+## Step 5: Show Trip PIN to Driver
+
+After booking is `accepted`, display the `trip_pin` to the passenger. They share this with the driver at pickup:
+
+```typescript
+const { data: booking } = await supabase
+  .from('bookings')
+  .select('trip_pin, status')
+  .eq('id', bookingId)
+  .single()
+
+// Show booking.trip_pin in your UI
+```
+
+---
+
+## Step 6: Track Driver Location
+
+Once trip is `active`, subscribe to real-time driver location:
+
+```typescript
+supabase.channel('driver-location')
+  .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'driver_locations',
+    filter: `trip_id=eq.${tripId}`,
+  }, (payload) => {
+    const { location, heading, speed_kmh } = payload.new
+    // Update map marker
+  })
+  .subscribe()
+```
+
+---
+
+## Step 7: Cancel (if needed)
+
+```typescript
+const { data } = await supabase.functions.invoke('cancel-booking', {
+  body: { passenger_id: userId, booking_id: bookingId, reason: 'Plans changed' }
+})
+// data.refund_amount_kobo tells you how much was refunded
+```
+
+---
+
+## Step 8: Rate the Driver
+
+After trip completes:
+
+```typescript
+await supabase.from('ratings').insert({
+  booking_id: bookingId,
+  rater_id: userId,
+  ratee_id: driverId,
+  score: 5,
+  comment: 'Smooth ride!',
+})
+```
+
+---
+
+## Step 9: Raise a Dispute (if needed)
+
+```typescript
+await supabase.functions.invoke('raise-dispute', {
+  body: {
+    booking_id: bookingId,
+    raised_by: userId,
+    against: driverId,
+    type: 'overcharge',
+    description: 'Was charged more than agreed',
+  }
+})
+```

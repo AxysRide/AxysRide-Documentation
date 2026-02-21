@@ -1,0 +1,109 @@
+---
+title: Payouts & Bank Accounts
+description: Driver payout records and bank account management
+---
+
+# Payouts & Bank Accounts
+
+## payouts
+
+Created automatically when a trip is completed. Tracks the transfer of driver earnings to their bank account via Paystack.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `driver_id` | uuid | FK to `profiles.id` |
+| `trip_id` | uuid | FK to `trips.id` |
+| `amount_kobo` | bigint | Amount to pay out |
+| `recipient_code` | text | Paystack recipient code |
+| `status` | text | `pending`, `processing`, `success`, `failed`, `reversed` |
+| `trigger_type` | text | `auto` or `manual` |
+| `scheduled_at` | timestamptz | When payout is due |
+| `initiated_at` | timestamptz | When Paystack transfer was started |
+| `completed_at` | timestamptz | Set automatically on success |
+| `failure_reason` | text | Populated on failure |
+| `retry_count` | integer | Max 3 retries |
+
+### Fetch Own Payout History (Driver)
+
+<CodeGroup>
+```typescript Next.js
+const { data: payouts } = await supabase
+  .from('payouts')
+  .select('amount_kobo, status, trigger_type, scheduled_at, completed_at, failure_reason')
+  .order('created_at', { ascending: false })
+```
+
+```dart Flutter
+final payouts = await supabase
+    .from('payouts')
+    .select('amount_kobo, status, trigger_type, scheduled_at, completed_at, failure_reason')
+    .order('created_at', ascending: false);
+```
+</CodeGroup>
+
+<Note>
+  Payouts are created automatically by the `complete-trip` Edge Function. Drivers do not create payout records manually.
+</Note>
+
+---
+
+## driver_bank_accounts
+
+Stores a driver's bank account details used for payouts. Each driver can have one active account.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `driver_id` | uuid | FK to `profiles.id` (unique) |
+| `bank_name` | text | |
+| `bank_code` | text | Paystack bank code |
+| `account_number` | text | 10 digits |
+| `account_name` | text | Resolved from Paystack |
+| `paystack_recipient_code` | text | Unique Paystack recipient |
+| `is_verified` | boolean | Set after Paystack resolves account |
+| `is_active` | boolean | |
+
+### Add Bank Account
+
+Use the `add-bank-account` Edge Function — do not insert directly:
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('add-bank-account', {
+  body: {
+    driver_id: userId,
+    account_number: '0123456789',
+    bank_code: '058',  // Get from get-paystack-banks
+  }
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('add-bank-account', body: {
+  'driver_id': userId,
+  'account_number': '0123456789',
+  'bank_code': '058',
+});
+```
+</CodeGroup>
+
+### Fetch Own Bank Account
+
+<CodeGroup>
+```typescript Next.js
+const { data: account } = await supabase
+  .from('driver_bank_accounts')
+  .select('bank_name, account_number, account_name, is_verified, is_active')
+  .single()
+```
+
+```dart Flutter
+final account = await supabase
+    .from('driver_bank_accounts')
+    .select('bank_name, account_number, account_name, is_verified, is_active')
+    .single();
+```
+</CodeGroup>

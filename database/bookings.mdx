@@ -1,0 +1,195 @@
+---
+title: Bookings
+description: Booking table structure and queries
+---
+
+# Bookings
+
+A booking is created when a passenger books a seat on a trip. It tracks the full lifecycle from request to completion.
+
+## Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | |
+| `trip_id` | uuid | FK to `trips.id` |
+| `passenger_id` | uuid | FK to `profiles.id` |
+| `seats_requested` | integer | Default 1 |
+| `pickup_name` | text | |
+| `dropoff_name` | text | |
+| `pickup_waypoint_id` | uuid | FK to `trip_waypoints.id` |
+| `dropoff_waypoint_id` | uuid | FK to `trip_waypoints.id` |
+| `status` | text | See status flow below |
+| `total_amount_kobo` | bigint | Auto-calculated by trigger |
+| `commission_kobo` | bigint | Auto-calculated by trigger |
+| `driver_credit_kobo` | bigint | Auto-calculated by trigger |
+| `payment_status` | text | `unpaid`, `paid`, `refunded`, `partially_refunded` |
+| `payment_method` | text | `wallet` or `paystack` |
+| `payment_ref` | text | Paystack reference |
+| `trip_pin` | char(4) | Auto-generated on insert |
+| `pin_verified` | boolean | Set when driver verifies passenger |
+| `cancelled_by` | text | `passenger` or `driver` |
+| `cancel_reason` | text | |
+
+## Booking Status Flow
+
+```
+pending → accepted → completed
+        ↘ rejected
+pending/accepted → cancelled
+```
+
+## Financial Fields (Read-Only)
+
+`total_amount_kobo`, `commission_kobo`, and `driver_credit_kobo` are **automatically calculated** by the `calculate_booking_financials` trigger when a booking is created. Never set these manually.
+
+---
+
+## Fetch Passenger's Own Bookings
+
+<CodeGroup>
+```typescript Next.js
+const { data: bookings } = await supabase
+  .from('bookings')
+  .select(`
+    id,
+    status,
+    payment_status,
+    total_amount_kobo,
+    seats_requested,
+    trip_pin,
+    trips (
+      origin_name,
+      destination_name,
+      departure_time,
+      profiles!driver_id (full_name, avatar_url, rating_avg)
+    )
+  `)
+  .order('created_at', { ascending: false })
+```
+
+```dart Flutter
+final bookings = await supabase
+    .from('bookings')
+    .select('''
+      id,
+      status,
+      payment_status,
+      total_amount_kobo,
+      seats_requested,
+      trip_pin,
+      trips (
+        origin_name,
+        destination_name,
+        departure_time,
+        profiles!driver_id (full_name, avatar_url, rating_avg)
+      )
+    ''')
+    .order('created_at', ascending: false);
+```
+</CodeGroup>
+
+## Fetch Driver's Bookings for a Trip
+
+<CodeGroup>
+```typescript Next.js
+const { data: bookings } = await supabase
+  .from('bookings')
+  .select(`
+    id,
+    status,
+    seats_requested,
+    pin_verified,
+    profiles!passenger_id (full_name, phone, avatar_url)
+  `)
+  .eq('trip_id', tripId)
+  .in('status', ['pending', 'accepted'])
+```
+
+```dart Flutter
+final bookings = await supabase
+    .from('bookings')
+    .select('''
+      id,
+      status,
+      seats_requested,
+      pin_verified,
+      profiles!passenger_id (full_name, phone, avatar_url)
+    ''')
+    .eq('trip_id', tripId)
+    .filter('status', 'in', ['pending', 'accepted']);
+```
+</CodeGroup>
+
+## Accept / Reject a Booking (Driver)
+
+<CodeGroup>
+```typescript Next.js
+// Accept
+await supabase
+  .from('bookings')
+  .update({ status: 'accepted' })
+  .eq('id', bookingId)
+
+// Reject
+await supabase
+  .from('bookings')
+  .update({ status: 'rejected' })
+  .eq('id', bookingId)
+```
+
+```dart Flutter
+// Accept
+await supabase
+    .from('bookings')
+    .update({'status': 'accepted'})
+    .eq('id', bookingId);
+
+// Reject
+await supabase
+    .from('bookings')
+    .update({'status': 'rejected'})
+    .eq('id', bookingId);
+```
+</CodeGroup>
+
+## Subscribe to Booking Status Changes (Passenger)
+
+<CodeGroup>
+```typescript Next.js
+const channel = supabase
+  .channel('booking-updates')
+  .on('postgres_changes', {
+    event: 'UPDATE',
+    schema: 'public',
+    table: 'bookings',
+    filter: `id=eq.${bookingId}`,
+  }, (payload) => {
+    console.log('Booking updated:', payload.new.status)
+  })
+  .subscribe()
+```
+
+```dart Flutter
+supabase
+    .channel('booking-updates')
+    .onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'bookings',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id',
+        value: bookingId,
+      ),
+      callback: (payload) {
+        print('Status: ${payload.newRecord['status']}');
+      },
+    )
+    .subscribe();
+```
+</CodeGroup>
+
+<Note>
+  The `trip_pin` field is shown to the **passenger** in their booking details. The passenger shares this verbally with the driver, who enters it in the app via the `verify-pin` Edge Function.
+</Note>

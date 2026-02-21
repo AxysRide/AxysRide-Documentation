@@ -1,0 +1,222 @@
+---
+title: Trips & Waypoints
+description: Trip creation, management, and waypoints
+---
+
+# Trips & Waypoints
+
+## trips
+
+Trips are created by approved drivers. Passengers browse and book available trips.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | |
+| `driver_id` | uuid | FK to `profiles.id` |
+| `origin_name` | text | Human-readable origin |
+| `origin_point` | geography | PostGIS point |
+| `destination_name` | text | Human-readable destination |
+| `destination_point` | geography | PostGIS point |
+| `departure_time` | timestamptz | |
+| `total_seats` | integer | Set at creation |
+| `seats_available` | integer | Auto-managed by trigger |
+| `price_per_seat_kobo` | bigint | In kobo |
+| `status` | text | `scheduled`, `active`, `completed`, `cancelled` |
+| `trip_type` | text | `once` or `recurring` |
+| `notes` | text | Optional driver notes |
+
+### Status Flow
+
+```
+scheduled → active → completed
+         ↘ cancelled
+```
+
+### Browse Available Trips (Passenger)
+
+<CodeGroup>
+```typescript Next.js
+const { data: trips, error } = await supabase
+  .from('trips')
+  .select(`
+    id,
+    origin_name,
+    destination_name,
+    departure_time,
+    seats_available,
+    price_per_seat_kobo,
+    driver_id,
+    profiles!driver_id (full_name, avatar_url, rating_avg)
+  `)
+  .in('status', ['scheduled', 'active'])
+  .gt('seats_available', 0)
+  .order('departure_time', { ascending: true })
+```
+
+```dart Flutter
+final trips = await supabase
+    .from('trips')
+    .select('''
+      id,
+      origin_name,
+      destination_name,
+      departure_time,
+      seats_available,
+      price_per_seat_kobo,
+      driver_id,
+      profiles!driver_id (full_name, avatar_url, rating_avg)
+    ''')
+    .filter('status', 'in', ['scheduled', 'active'])
+    .gt('seats_available', 0)
+    .order('departure_time');
+```
+</CodeGroup>
+
+### Create Trip (Driver)
+
+Use the `create-trip` Edge Function — do not insert directly.
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('create-trip', {
+  body: {
+    driver_id: userId,
+    start_location: { latitude: 6.5244, longitude: 3.3792 },
+    end_location: { latitude: 7.3776, longitude: 3.9470 },
+    price_per_seat_kobo: 150000,  // ₦1,500
+    total_seats: 3,
+    departure_time: '2025-03-15T08:00:00Z',
+  }
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('create-trip', body: {
+  'driver_id': userId,
+  'start_location': {'latitude': 6.5244, 'longitude': 3.3792},
+  'end_location': {'latitude': 7.3776, 'longitude': 3.9470},
+  'price_per_seat_kobo': 150000,
+  'total_seats': 3,
+  'departure_time': '2025-03-15T08:00:00Z',
+});
+```
+</CodeGroup>
+
+### Fetch Driver's Own Trips
+
+<CodeGroup>
+```typescript Next.js
+const { data: trips } = await supabase
+  .from('trips')
+  .select('*')
+  .order('departure_time', { ascending: false })
+```
+
+```dart Flutter
+final trips = await supabase
+    .from('trips')
+    .select()
+    .order('departure_time', ascending: false);
+```
+</CodeGroup>
+
+### Update Trip Location (Real-time GPS)
+
+During an active trip, drivers send location pings:
+
+<CodeGroup>
+```typescript Next.js
+await supabase.from('driver_locations').insert({
+  driver_id: userId,
+  trip_id: tripId,
+  location: `POINT(${longitude} ${latitude})`,
+  heading: 270.5,
+  speed_kmh: 60.0,
+})
+```
+
+```dart Flutter
+await supabase.from('driver_locations').insert({
+  'driver_id': userId,
+  'trip_id': tripId,
+  'location': 'POINT($longitude $latitude)',
+  'heading': 270.5,
+  'speed_kmh': 60.0,
+});
+```
+</CodeGroup>
+
+### Subscribe to Driver Location (Passenger)
+
+<CodeGroup>
+```typescript Next.js
+const channel = supabase
+  .channel('driver-location')
+  .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'driver_locations',
+    filter: `trip_id=eq.${tripId}`,
+  }, (payload) => {
+    console.log('New location:', payload.new)
+  })
+  .subscribe()
+```
+
+```dart Flutter
+supabase
+    .channel('driver-location')
+    .onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'driver_locations',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'trip_id',
+        value: tripId,
+      ),
+      callback: (payload) {
+        print('New location: ${payload.newRecord}');
+      },
+    )
+    .subscribe();
+```
+</CodeGroup>
+
+---
+
+## trip_waypoints
+
+Ordered stops along a trip route. Passengers can select a waypoint as their pickup or dropoff point.
+
+### Key Columns
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `trip_id` | uuid | FK to `trips.id` |
+| `sequence` | integer | Order of the stop (starts at 1) |
+| `name` | text | Stop name |
+| `point` | geography | Location |
+| `estimated_arrival` | timestamptz | Optional ETA |
+
+### Fetch Waypoints for a Trip
+
+<CodeGroup>
+```typescript Next.js
+const { data: waypoints } = await supabase
+  .from('trip_waypoints')
+  .select('*')
+  .eq('trip_id', tripId)
+  .order('sequence', { ascending: true })
+```
+
+```dart Flutter
+final waypoints = await supabase
+    .from('trip_waypoints')
+    .select()
+    .eq('trip_id', tripId)
+    .order('sequence');
+```
+</CodeGroup>

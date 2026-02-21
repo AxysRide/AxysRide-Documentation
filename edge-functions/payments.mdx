@@ -1,0 +1,228 @@
+---
+title: Payments & Wallet
+description: Edge Functions for funding wallets and Paystack integration
+---
+
+# Payments & Wallet Edge Functions
+
+## fund-wallet
+
+Initiates a wallet top-up via Paystack. Returns a Paystack checkout URL for the user to complete payment.
+
+**Who can call:** Any authenticated user
+
+### Request
+
+```json
+{
+  "amount_kobo": 500000,
+  "channel": "card"
+}
+```
+
+`channel` options: `card`, `bank_transfer`
+
+### Response
+
+```json
+{
+  "authorization_url": "https://checkout.paystack.com/..."
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('fund-wallet', {
+  body: {
+    amount_kobo: 500000,  // ₦5,000
+    channel: 'card',
+  }
+})
+
+// Redirect user to complete payment
+window.open(data.authorization_url, '_blank')
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('fund-wallet', body: {
+  'amount_kobo': 500000,
+  'channel': 'card',
+});
+
+final url = Uri.parse(res.data['authorization_url']);
+await launchUrl(url, mode: LaunchMode.externalApplication);
+```
+</CodeGroup>
+
+### What Happens Internally
+
+1. Validates `amount_kobo` and `channel`
+2. Initializes a Paystack transaction with `metadata.type = "wallet_topup"`
+3. Creates a `wallet_topups` row with status `pending`
+4. Returns the Paystack `authorization_url`
+5. When user completes payment, Paystack fires a webhook → `paystack-webhook` function credits the wallet automatically
+
+<Note>
+  After the user completes payment on Paystack, the wallet is credited automatically via the webhook. You do not need to poll or call any other function — just listen to wallet balance changes via Realtime or refetch the wallet after the user returns.
+</Note>
+
+---
+
+## get-paystack-banks
+
+Returns a list of Nigerian banks from Paystack. Used when a driver is adding their bank account.
+
+**Who can call:** Any authenticated user  
+**Method:** GET
+
+### Response
+
+```json
+{
+  "banks": [
+    { "name": "Access Bank", "code": "044", "long_code": "044150149" },
+    { "name": "GTBank", "code": "058", "long_code": "058152052" },
+    ...
+  ]
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('get-paystack-banks')
+const banks = data.banks
+
+// Example: populate a dropdown
+banks.forEach(bank => {
+  console.log(`${bank.name} — ${bank.code}`)
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('get-paystack-banks');
+final banks = res.data['banks'] as List;
+
+// Example: populate a dropdown
+for (final bank in banks) {
+  print('${bank['name']} — ${bank['code']}');
+}
+```
+</CodeGroup>
+
+---
+
+## resolve-account-name
+
+Resolves a bank account number to get the account holder's name via Paystack. Call this before `add-bank-account` to show the user their account name for confirmation.
+
+**Who can call:** Any authenticated user
+
+### Request
+
+```json
+{
+  "account_number": "0123456789",
+  "bank_code": "058"
+}
+```
+
+### Response
+
+```json
+{
+  "account_name": "JOHN DOE"
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('resolve-account-name', {
+  body: {
+    account_number: accountNumber,
+    bank_code: selectedBankCode,
+  }
+})
+
+// Show account_name to user for confirmation before saving
+console.log('Account belongs to:', data.account_name)
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('resolve-account-name', body: {
+  'account_number': accountNumber,
+  'bank_code': selectedBankCode,
+});
+
+final accountName = res.data['account_name'];
+// Show to user for confirmation
+```
+</CodeGroup>
+
+---
+
+## add-bank-account
+
+Adds a verified bank account for a driver. Resolves the account name via Paystack and stores the result.
+
+**Who can call:** Drivers only
+
+### Request
+
+```json
+{
+  "driver_id": "uuid",
+  "account_number": "0123456789",
+  "bank_code": "058"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Bank account added successfully",
+  "bank_account": {
+    "id": "uuid",
+    "bank_name": "GTBank",
+    "account_number": "0123456789",
+    "account_name": "JOHN DOE",
+    "verified": true
+  }
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('add-bank-account', {
+  body: {
+    driver_id: userId,
+    account_number: '0123456789',
+    bank_code: '058',
+  }
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('add-bank-account', body: {
+  'driver_id': userId,
+  'account_number': '0123456789',
+  'bank_code': '058',
+});
+```
+</CodeGroup>
+
+### Recommended Flow
+
+```
+1. Call get-paystack-banks → show bank selector
+2. User enters account number + selects bank
+3. Call resolve-account-name → show account name for confirmation
+4. User confirms → call add-bank-account
+```
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 400 | Failed to verify account (invalid account number/bank) |
+| 400 | This bank account is already added |

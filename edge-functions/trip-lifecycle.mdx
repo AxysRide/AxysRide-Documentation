@@ -1,0 +1,197 @@
+---
+title: Trip Lifecycle
+description: Edge Functions for creating, starting, and completing trips
+---
+
+# Trip Lifecycle Edge Functions
+
+## create-trip
+
+Creates a new trip after validating the driver is approved and the price is within platform limits.
+
+**Who can call:** Approved drivers only
+
+### Request
+
+```json
+{
+  "driver_id": "uuid",
+  "start_location": { "latitude": 6.5244, "longitude": 3.3792 },
+  "end_location": { "latitude": 7.3776, "longitude": 3.9470 },
+  "waypoints": [],
+  "price_per_seat_kobo": 150000,
+  "total_seats": 3,
+  "departure_time": "2025-03-15T08:00:00Z"
+}
+```
+
+### Response
+
+```json
+{
+  "trip": {
+    "id": "uuid",
+    "status": "scheduled",
+    "seats_available": 3,
+    ...
+  }
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('create-trip', {
+  body: {
+    driver_id: userId,
+    start_location: { latitude: 6.5244, longitude: 3.3792 },
+    end_location: { latitude: 7.3776, longitude: 3.9470 },
+    price_per_seat_kobo: 150000,
+    total_seats: 3,
+    departure_time: '2025-03-15T08:00:00Z',
+  }
+})
+
+if (error) console.error(error)
+const trip = data.trip
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('create-trip', body: {
+  'driver_id': userId,
+  'start_location': {'latitude': 6.5244, 'longitude': 3.3792},
+  'end_location': {'latitude': 7.3776, 'longitude': 3.9470},
+  'price_per_seat_kobo': 150000,
+  'total_seats': 3,
+  'departure_time': '2025-03-15T08:00:00Z',
+});
+
+final trip = res.data['trip'];
+```
+</CodeGroup>
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 403 | Driver not approved or not found |
+| 400 | Price per seat exceeds allowed limit |
+| 400 | Missing required fields |
+
+---
+
+## start-trip
+
+Starts a scheduled trip. All accepted passengers must have their PIN verified (or be marked as no-show) before the trip can start.
+
+**Who can call:** Driver who owns the trip
+
+### Request
+
+```json
+{
+  "driver_id": "uuid",
+  "trip_id": "uuid"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Trip started successfully",
+  "trip": { "id": "uuid", "status": "ongoing", ... }
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('start-trip', {
+  body: { driver_id: userId, trip_id: tripId }
+})
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('start-trip', body: {
+  'driver_id': userId,
+  'trip_id': tripId,
+});
+```
+</CodeGroup>
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 400 | Some passengers are not verified (returns list of pending passengers) |
+| 400 | No confirmed bookings for this trip |
+| 403 | Unauthorized: driver mismatch |
+| 400 | Trip cannot be started from status `{current_status}` |
+
+<Note>
+  If unverified passengers remain, the response includes a `pending_passengers` array with their names and phone numbers so the driver can contact them or mark them as no-shows before starting.
+</Note>
+
+---
+
+## complete-trip
+
+Marks a trip as complete and creates a payout record for the driver. Automatically credits the driver's wallet if their payout preference is `auto`.
+
+**Who can call:** Driver who owns the trip
+
+### Request
+
+```json
+{
+  "driver_id": "uuid",
+  "trip_id": "uuid"
+}
+```
+
+### Response
+
+```json
+{
+  "message": "Payout scheduled successfully",
+  "payout_id": "uuid"
+}
+```
+
+<CodeGroup>
+```typescript Next.js
+const { data, error } = await supabase.functions.invoke('complete-trip', {
+  body: { driver_id: userId, trip_id: tripId }
+})
+
+const payoutId = data?.payout_id
+```
+
+```dart Flutter
+final res = await supabase.functions.invoke('complete-trip', body: {
+  'driver_id': userId,
+  'trip_id': tripId,
+});
+
+final payoutId = res.data['payout_id'];
+```
+</CodeGroup>
+
+### What Happens Internally
+
+1. Checks no payout already exists for this trip
+2. Fetches all `accepted` + `paid` bookings
+3. Checks for any open disputes (holds payout if found)
+4. Fetches driver's active bank account
+5. Calculates total payout from `driver_credit_kobo` across all bookings
+6. Creates a `payouts` record
+7. Links `payout_id` to all bookings and marks them `completed`
+8. If driver payout preference is `auto`, credits wallet immediately
+
+### Errors
+
+| Status | Message |
+|--------|---------|
+| 400 | No bookings to payout |
+| 200 | Active dispute exists, payout on hold |
+| 200 | Payout already scheduled |
+| 400 | Driver bank account not found |
